@@ -87,6 +87,32 @@
   .buf.late { color: var(--bad); }
   .phaselist li .by { float: right; color: var(--dim); font-size: 12px; }
 
+  /* the one glowing green button = push this next */
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(55, 200, 113, 0.65); }
+    50% { box-shadow: 0 0 0 14px rgba(55, 200, 113, 0); }
+  }
+  .glow {
+    background: var(--ok) !important; border-color: var(--ok) !important;
+    color: #08130c !important; animation: pulseGlow 1.5s infinite;
+  }
+
+  /* permanent boarding countdown — always on screen once times are set */
+  #boardBar {
+    display: none; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 14px; background: #0b0e12; border-bottom: 2px solid var(--line);
+  }
+  #boardBar .lbl { font-size: 11px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; }
+  #boardBar .lbl b { color: var(--text); display: block; font-size: 13px; letter-spacing: 1px; }
+  #boardBar .clock { font-family: Consolas, 'Courier New', monospace; font-size: 30px; font-weight: 800; letter-spacing: 1px; }
+  #boardBar .clock.ok { color: var(--ok); }
+  #boardBar .clock.tight { color: var(--warn); }
+  #boardBar .clock.late { color: var(--bad); animation: pulseGlow 1.2s infinite; border-radius: 8px; padding: 0 6px; }
+  .bm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+  .bm-verdict { margin-top: 10px; font-size: 16px; font-weight: 800; }
+  .bm-verdict.win { color: var(--ok); }
+  .bm-verdict.lose { color: var(--warn); }
+
   /* ---- HUB VIEW ---- */
   .hubgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
   .hubbtn {
@@ -147,6 +173,8 @@
   <button class="hbtn" id="voiceBtn" onclick="toggleVoice()">🔊</button>
 </header>
 
+<div id="boardBar"></div>
+
 <main>
   <!-- TRIP -->
   <section class="view active" id="view-trip">
@@ -178,6 +206,10 @@
       <div class="row2">
         <div><label>Departure time (outbound)</label><input id="f_depTimeOut" type="time"></div>
         <div><label>Departure time (return)</label><input id="f_depTimeRet" type="time"></div>
+      </div>
+      <div class="row2">
+        <div><label>Overweight bag (50+ lb)?</label><select id="f_heavyBag"><option value="no">No</option><option value="yes">Yes</option></select></div>
+        <div></div>
       </div>
     </fieldset>
     <fieldset>
@@ -220,6 +252,7 @@ let phases = [];
 let lastSpokenPhase = -1;
 let geoWatchId = null;
 let geoFired = { depart: false, arrive: false };
+let lastPos = null;
 
 function loadAll() {
   try { trip = JSON.parse(localStorage.getItem('th_trip')); } catch (e) { trip = null; }
@@ -260,10 +293,15 @@ function buildPhases() {
       actions: [{ label: 'Waze to ' + dep.code, url: wazeUrl(dep.name + ' rental car return ' + dep.city) }]
     });
   }
+  const heavy = trip.heavyBag === 'yes';
+  const skycap = dep.departure.skycap || '';
   phases.push({
     id: 'checkin', title: 'Check In / Bag Drop',
-    lines: [pick(dep.departure.checkin, trip.airline), flight ? al.name + ' flight ' + flight + '.' : ''],
-    voice: pick(dep.departure.checkin, trip.airline),
+    lines: [pick(dep.departure.checkin, trip.airline),
+      heavy && skycap ? '💪 Heavy bag: ' + skycap : (skycap || ''),
+      heavy ? 'Overweight fee applies on top of the bag fee regardless of fare class — 51–70 lb runs about $100 on Southwest.' : '',
+      flight ? al.name + ' flight ' + flight + '.' : ''],
+    voice: pick(dep.departure.checkin, trip.airline) + (heavy && skycap ? ' Heavy bag tip: ' + skycap : ''),
     actions: alBtn
   });
   phases.push({
@@ -390,14 +428,50 @@ function bufferVoice(at) {
 function renderTimeChip() {
   const el = document.getElementById('timeChip');
   if (!el || !phases.length) return;
-  const s = schedule[phases[state.phase].id];
+  const pid = phases[state.phase].id;
+  const s = schedule[pid];
   if (!s) { el.style.display = 'none'; return; }
-  const b = bufferInfo(s.at);
+  let label = s.label, at = s.at, extra = '';
+  // On the drive phase, fold in a rough drive-time estimate from wherever you are
+  if (pid === 'drive' && lastPos) {
+    const out = state.dir === 'out';
+    const dep = AIRPORTS[out ? trip.from : trip.to];
+    const miles = distKm(lastPos.lat, lastPos.lon, dep.lat, dep.lon) * 0.621;
+    if (miles > 1 && miles < 150) {
+      const driveMin = Math.max(5, Math.round(miles * 2)); // ~30 mph average, rough
+      at = new Date(s.at.getTime() - driveMin * 60000);
+      label = 'Leave by';
+      extra = '<div style="width:100%;font-size:13px;color:var(--dim)">📍 ' + miles.toFixed(1) +
+        ' mi out, ~' + driveMin + ' min drive (rough — tap Waze for the real ETA)</div>';
+    }
+  }
+  const b = bufferInfo(at);
   el.style.display = 'flex';
-  el.innerHTML = '<span class="tgt">' + s.label + ' <b>' + fmtClock(s.at) + '</b></span>' +
-    '<span class="buf ' + b.cls + '">' + (b.cls === 'late' ? '⚠ ' : '⏱ ') + b.txt + '</span>';
+  el.style.flexWrap = 'wrap';
+  el.innerHTML = '<span class="tgt">' + label + ' <b>' + fmtClock(at) + '</b></span>' +
+    '<span class="buf ' + b.cls + '">' + (b.cls === 'late' ? '⚠ ' : '⏱ ') + b.txt + '</span>' + extra;
 }
 setInterval(renderTimeChip, 30000);
+
+// Permanent boarding countdown — ticks every second, shows anywhere
+function renderBoardBar() {
+  const bar = document.getElementById('boardBar');
+  if (!schedule.board || !trip) { bar.style.display = 'none'; return; }
+  const at = schedule.board.at;
+  if (Date.now() > schedule.flight.at.getTime() + 45 * 60000) { bar.style.display = 'none'; return; }
+  const ms = at - Date.now();
+  const late = ms < 0, abs = Math.abs(ms);
+  const h = Math.floor(abs / 3600000), m = Math.floor(abs % 3600000 / 60000), s = Math.floor(abs % 60000 / 1000);
+  const pad = n => String(n).padStart(2, '0');
+  const txt = late ? 'BOARD NOW' : (h ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s));
+  const cls = late ? 'late' : (ms < 30 * 60000 ? 'tight' : 'ok');
+  const out = state.dir === 'out';
+  const route = out ? trip.from + ' → ' + trip.to : trip.to + ' → ' + trip.from;
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span class="lbl">Boarding ' + fmtClock(at) + '<b>' + route + '</b></span>' +
+    '<span class="clock ' + cls + '">' + txt + '</span>';
+}
+setInterval(renderBoardBar, 1000);
 
 // =========================================================
 // VOICE
@@ -465,10 +539,13 @@ function renderTrip() {
   html += '<div class="timechip" id="timeChip" style="display:none"></div>';
   html += '<div class="phasecard"><h2>' + p.title + '</h2>';
   p.lines.filter(Boolean).forEach(l => html += '<p>' + l + '</p>');
+  // ONE glowing green button = the next thing to push.
+  // If this phase has a primary action (like OPEN WAZE), that glows; otherwise NEXT glows.
+  const hasPrimary = p.actions.some(a => a.primary);
   if (p.actions.length) {
     html += '<div class="actions">';
     p.actions.forEach(a => {
-      html += '<a class="abtn' + (a.primary ? ' primary' : '') + '" href="' + a.url + '" target="_blank" rel="noopener">' + a.label + '</a>';
+      html += '<a class="abtn' + (a.primary ? ' primary glow' : '') + '" href="' + a.url + '" target="_blank" rel="noopener">' + a.label + '</a>';
     });
     html += '</div>';
   }
@@ -476,7 +553,7 @@ function renderTrip() {
   html += '<div class="navrow">' +
     '<button onclick="setPhase(state.phase-1,false)">◂ BACK</button>' +
     '<button onclick="speak(phases[state.phase].voice)">🔊 SAY IT</button>' +
-    '<button class="next" onclick="setPhase(state.phase+1,true)">NEXT ▸</button></div>';
+    '<button class="next' + (hasPrimary ? '' : ' glow') + '" onclick="setPhase(state.phase+1,true)">NEXT ▸</button></div>';
   html += '<ul class="phaselist">';
   phases.forEach((ph, i) => {
     const cls = i < state.phase ? 'done' : (i === state.phase ? 'now' : '');
@@ -513,9 +590,48 @@ function renderHub() {
   if (dep) html += hub('📰', dep.city + ' News', 'https://news.google.com/search?q=' + encodeURIComponent(dep.city + ' ' + regionOf(dep)));
   html += '</div>';
 
+  // Bag Math — is the premium seat cheaper once bag fees are counted?
+  const wn = trip.airline === 'WN';
+  html += '<div class="sectionhead">Bag Math — coach + bag fees vs premium seat</div>' +
+    '<div class="wxcard">' +
+    '<div class="bm-row"><div><label>Coach fare $</label><input id="bm_coach" type="number" inputmode="decimal" placeholder="0"></div>' +
+    '<div><label>Premium fare $ (' + (wn ? 'Business Select' : 'First') + ')</label><input id="bm_prem" type="number" inputmode="decimal" placeholder="0"></div></div>' +
+    '<div class="bm-row"><div><label>Bag fee $ (each way)</label><input id="bm_bag" type="number" value="' + (wn ? 45 : 40) + '"></div>' +
+    '<div><label>Overweight fee $ (each way)</label><input id="bm_ow" type="number" value="100"></div></div>' +
+    '<div class="bm-row"><div><label>Premium includes free bag?</label><select id="bm_free"><option value="yes">Yes</option><option value="no">No</option></select></div>' +
+    '<div><label>Premium waives overweight (70 lb)?</label><select id="bm_waive">' +
+    (wn ? '<option value="no">No (Southwest)</option><option value="yes">Yes</option>'
+        : '<option value="yes">Yes (legacy first class)</option><option value="no">No</option>') +
+    '</select></div></div>' +
+    '<button class="savebtn" style="margin-top:6px" onclick="calcBags()">RUN THE MATH</button>' +
+    '<div class="bm-verdict" id="bm_out"></div>' +
+    '<p class="dim" style="margin-top:8px">Round trip = both directions. Southwest 2026: 1st bag $45, overweight 51–70 lb +$100 on ANY fare. ' +
+    'Free-bag workarounds: Choice Extra fare, A-List, or the Rapid Rewards credit card. ' +
+    'On AA/Delta/United, first class bumps the weight allowance to 70 lb — the overweight fee disappears.</p>' +
+    '</div>';
+
   html += '<div class="sectionhead">Weather</div><div id="wxWrap">' +
     '<div class="wxcard"><p class="dim">Loading forecast…</p></div></div>';
   el.innerHTML = html;
+}
+function calcBags() {
+  const n = id => parseFloat(document.getElementById(id).value) || 0;
+  const coach = n('bm_coach'), prem = n('bm_prem'), bag = n('bm_bag'), ow = n('bm_ow');
+  const freeBag = document.getElementById('bm_free').value === 'yes';
+  const waiveOw = document.getElementById('bm_waive').value === 'yes';
+  const R = 2; // both directions
+  const coachTotal = coach + (bag + ow) * R;
+  const premTotal = prem + ((freeBag ? 0 : bag) + (waiveOw ? 0 : ow)) * R;
+  const out = document.getElementById('bm_out');
+  if (!coach && !prem) { out.textContent = 'Put the two fares in first.'; out.className = 'bm-verdict'; return; }
+  const diff = Math.round(coachTotal - premTotal);
+  if (diff >= 0) {
+    out.className = 'bm-verdict win';
+    out.textContent = '✅ PREMIUM WINS by $' + diff + ' — coach really costs $' + Math.round(coachTotal) + ', premium $' + Math.round(premTotal) + ' (round trip w/ your bag).';
+  } else {
+    out.className = 'bm-verdict lose';
+    out.textContent = 'Coach wins by $' + Math.abs(diff) + ' — coach $' + Math.round(coachTotal) + ' vs premium $' + Math.round(premTotal) + ' (round trip w/ your bag).';
+  }
 }
 function hub(ico, label, url, extra) {
   return '<a class="hubbtn ' + (extra || '') + '" href="' + url + '" target="_blank" rel="noopener">' +
@@ -574,6 +690,7 @@ function startGeo() {
 function onPos(pos) {
   if (!trip || !phases.length) return;
   const { latitude: la, longitude: lo } = pos.coords;
+  lastPos = { lat: la, lon: lo };
   const out = state.dir === 'out';
   const dep = AIRPORTS[out ? trip.from : trip.to];
   const arr = AIRPORTS[out ? trip.to : trip.from];
@@ -614,7 +731,7 @@ function fillForm() {
     Object.keys(RENTALS).map(c => '<option value="' + c + '">' + RENTALS[c].name + '</option>').join('');
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depTimeOut','depTimeRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depTimeOut','depTimeRet','heavyBag','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -625,7 +742,7 @@ function saveTrip() {
   trip = {
     from: val('f_from'), to: val('f_to'), airline: val('f_airline'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
-    depTimeOut: val('f_depTimeOut'), depTimeRet: val('f_depTimeRet'),
+    depTimeOut: val('f_depTimeOut'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')

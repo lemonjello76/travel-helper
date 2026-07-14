@@ -23,6 +23,7 @@ window.AIRPORTS = {
         WN: "Southwest check-in is Terminal 1, Level 2 (ticketing level). Counters and kiosks are on the esplanade.",
         default: "Check-in is on Terminal 1 Level 2 (ticketing level) for most domestic airlines."
       },
+      skycap: "Skycap curbside check-in runs at the Terminal 1 departures curb — hand off a heavy bag right there and skip the ticket counter line entirely.",
       security: {
         precheck: "PreCheck is at the A/B checkpoint (3:30am–1am) and the C/D checkpoint (3:30am–1am). For Southwest C gates, the C/D checkpoint is closest. All T1 gates connect airside, so use whichever line is shorter.",
         standard: "Terminal 1 has three checkpoints: A/B, C Annex (3:05am–9:30pm), and C/D. All T1 gates connect airside — pick the shortest line."
@@ -59,6 +60,7 @@ window.AIRPORTS = {
         WN: "Southwest check-in is in the Main Terminal, Level 2 (Blue side). After security you'll ride the shuttle to Airside A.",
         default: "Check-in is Main Terminal Level 2. Red side (north) and Blue side (south) — check the signs for your airline."
       },
+      skycap: "Check the departures curb for skycap service (not confirmed for Southwest at TPA) — if it's there, a heavy bag goes curbside and you skip the counter.",
       security: {
         precheck: "Security is at each airside, not the main terminal. Go up to Level 3 (transfer level), ride the shuttle to your airside — PreCheck lanes are at the airside checkpoint.",
         standard: "From ticketing, go up to Level 3 and take the shuttle to your airside. Security screening happens at the airside."

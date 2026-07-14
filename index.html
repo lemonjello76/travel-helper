@@ -74,6 +74,18 @@
     border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; color: var(--warn);
   }
   .geobanner.show { display: block; }
+  .timechip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 10px; font-size: 15px;
+  }
+  .timechip .tgt { color: var(--dim); }
+  .timechip .tgt b { color: var(--text); }
+  .timechip .buf { font-weight: 800; font-size: 17px; white-space: nowrap; }
+  .buf.ok { color: var(--ok); }
+  .buf.tight { color: var(--warn); }
+  .buf.late { color: var(--bad); }
+  .phaselist li .by { float: right; color: var(--dim); font-size: 12px; }
 
   /* ---- HUB VIEW ---- */
   .hubgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
@@ -162,6 +174,10 @@
       <div class="row2">
         <div><label>Flight # return</label><input id="f_flightRet" placeholder="e.g. 5678"></div>
         <div><label>TSA PreCheck?</label><select id="f_precheck"><option value="yes">Yes</option><option value="no">No</option></select></div>
+      </div>
+      <div class="row2">
+        <div><label>Departure time (outbound)</label><input id="f_depTimeOut" type="time"></div>
+        <div><label>Departure time (return)</label><input id="f_depTimeRet" type="time"></div>
       </div>
     </fieldset>
     <fieldset>
@@ -319,9 +335,69 @@ function buildPhases() {
     voice: out ? 'You made it.' : 'Home safe. Round trip done.',
     actions: []
   });
+  buildSchedule();
 }
 
 function wazeUrl(q) { return 'https://waze.com/ul?q=' + encodeURIComponent(q) + '&navigate=yes'; }
+
+// =========================================================
+// SCHEDULE — works backward from departure time.
+// Each station gets a "be here by" deadline + live buffer.
+// =========================================================
+let schedule = {};
+function buildSchedule() {
+  schedule = {};
+  if (!trip) return;
+  const out = state.dir === 'out';
+  const depTime = out ? trip.depTimeOut : trip.depTimeRet;
+  const dep = AIRPORTS[out ? trip.from : trip.to];
+  if (!depTime || !dep) return;
+  const t = dep.times || {};
+  const bag = t.bagDrop || 15;
+  const sec = trip.precheck === 'yes' ? (t.securityPre || 15) : (t.securityStd || 30);
+  const walk = t.toGate || 20;
+  const rentalDrop = (!out && trip.rental) ? (t.rentalReturn || 20) : 0;
+  const [h, m] = depTime.split(':').map(Number);
+  const depDate = new Date(); depDate.setHours(h, m, 0, 0);
+  const minus = n => new Date(depDate.getTime() - n * 60000);
+  const BOARD = 30; // boarding starts ~30 min before departure
+  schedule = {
+    drive:    { label: rentalDrop ? 'Car dropped by' : 'At the airport by', at: minus(BOARD + walk + sec + bag) },
+    checkin:  { label: 'Bags dropped by',    at: minus(BOARD + walk + sec) },
+    security: { label: 'Through security by', at: minus(BOARD + walk) },
+    gate:     { label: 'At your gate by',    at: minus(BOARD) },
+    board:    { label: 'Boarding starts',    at: minus(BOARD) },
+    flight:   { label: 'Wheels up',          at: depDate }
+  };
+  if (rentalDrop) schedule.drive.at = minus(BOARD + walk + sec + bag + rentalDrop);
+}
+function fmtClock(d) { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+function bufferInfo(at) {
+  const mins = Math.round((at - Date.now()) / 60000);
+  const abs = Math.abs(mins);
+  const txt = (abs >= 60 ? Math.floor(abs / 60) + 'h ' + (abs % 60) + 'm' : abs + ' min');
+  if (mins < 0) return { cls: 'late', txt: txt + ' BEHIND', mins };
+  if (mins <= 15) return { cls: 'tight', txt: txt + ' left', mins };
+  return { cls: 'ok', txt: '+' + txt, mins };
+}
+function bufferVoice(at) {
+  const mins = Math.round((at - Date.now()) / 60000);
+  if (mins < 0) return 'Heads up — you\'re running about ' + Math.abs(mins) + ' minutes behind. Tighten it up.';
+  if (mins <= 15) return 'You\'ve got about ' + mins + ' minutes — keep it moving.';
+  const h = Math.floor(mins / 60), r = mins % 60;
+  return 'You\'ve got ' + (h ? h + (h === 1 ? ' hour ' : ' hours ') + (r ? r + ' minutes' : '') : mins + ' minutes') + ' of cushion.';
+}
+function renderTimeChip() {
+  const el = document.getElementById('timeChip');
+  if (!el || !phases.length) return;
+  const s = schedule[phases[state.phase].id];
+  if (!s) { el.style.display = 'none'; return; }
+  const b = bufferInfo(s.at);
+  el.style.display = 'flex';
+  el.innerHTML = '<span class="tgt">' + s.label + ' <b>' + fmtClock(s.at) + '</b></span>' +
+    '<span class="buf ' + b.cls + '">' + (b.cls === 'late' ? '⚠ ' : '⏱ ') + b.txt + '</span>';
+}
+setInterval(renderTimeChip, 30000);
 
 // =========================================================
 // VOICE
@@ -348,7 +424,8 @@ function setPhase(i, announce) {
   renderTrip();
   if (announce && state.phase !== lastSpokenPhase) {
     lastSpokenPhase = state.phase;
-    speak(phases[state.phase].voice);
+    const s = schedule[phases[state.phase].id];
+    speak(phases[state.phase].voice + (s ? ' ' + bufferVoice(s.at) : ''));
   }
 }
 function toggleDirection() {
@@ -385,6 +462,7 @@ function renderTrip() {
   const dirLabel = state.dir === 'out' ? trip.from + ' → ' + trip.to : trip.to + ' → ' + trip.from;
   let html = '<div class="stepmeta"><span class="stepnum">Step ' + (state.phase + 1) + ' of ' + phases.length +
     '</span><span class="dirchip">' + dirLabel + '</span></div>';
+  html += '<div class="timechip" id="timeChip" style="display:none"></div>';
   html += '<div class="phasecard"><h2>' + p.title + '</h2>';
   p.lines.filter(Boolean).forEach(l => html += '<p>' + l + '</p>');
   if (p.actions.length) {
@@ -402,10 +480,12 @@ function renderTrip() {
   html += '<ul class="phaselist">';
   phases.forEach((ph, i) => {
     const cls = i < state.phase ? 'done' : (i === state.phase ? 'now' : '');
-    html += '<li class="' + cls + '" onclick="setPhase(' + i + ',true)">' + (i + 1) + '. ' + ph.title + '</li>';
+    const by = schedule[ph.id] ? '<span class="by">' + fmtClock(schedule[ph.id].at) + '</span>' : '';
+    html += '<li class="' + cls + '" onclick="setPhase(' + i + ',true)">' + (i + 1) + '. ' + ph.title + by + '</li>';
   });
   html += '</ul>';
   el.innerHTML = html;
+  renderTimeChip();
 }
 
 function renderHub() {
@@ -534,7 +614,7 @@ function fillForm() {
     Object.keys(RENTALS).map(c => '<option value="' + c + '">' + RENTALS[c].name + '</option>').join('');
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depTimeOut','depTimeRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -545,6 +625,7 @@ function saveTrip() {
   trip = {
     from: val('f_from'), to: val('f_to'), airline: val('f_airline'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
+    depTimeOut: val('f_depTimeOut'), depTimeRet: val('f_depTimeRet'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')

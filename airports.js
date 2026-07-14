@@ -33,6 +33,8 @@ window.AIRPORTS = {
       },
       rentalReturn: "Follow signs to the Rent-A-Car Center on Gilespie Street. Drop the car, then ride the free shuttle to Terminal 1 — about 10 minutes, so pad your timeline."
     },
+    // segment times in minutes — how long each station realistically takes here
+    times: { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 20, rentalReturn: 25 },
     arrival: {
       toBaggage: "From your gate, follow Baggage Claim signs down to Terminal 1 Level 1. From D gates, take the tram back to the main building first.",
       baggage: "Baggage claim is on Terminal 1 Level 1. Check monitors for your carousel.",
@@ -67,6 +69,8 @@ window.AIRPORTS = {
       },
       rentalReturn: "Follow signs to the Rental Car Center on Airport Service Road. Drop the car, then ride the free SkyConnect train to the Main Terminal — about 5 minutes, trains every 2."
     },
+    // toGate includes the Level 3 shuttle ride out to the airside
+    times: { bagDrop: 15, securityPre: 12, securityStd: 28, toGate: 15, rentalReturn: 20 },
     arrival: {
       toBaggage: "Off the plane, follow the crowd to the airside shuttle — it takes you to the Main Terminal Level 3 (transfer level). Then take the elevator or escalator down to Level 1.",
       baggage: "Baggage claim is Main Terminal Level 1 — Red side (north) and Blue side (south). Southwest bags usually come out on the Blue side; check the monitors for your carousel.",

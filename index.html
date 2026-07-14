@@ -137,10 +137,11 @@
   fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
   legend { padding: 0 8px; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); font-weight: 800; }
   label { display: block; font-size: 13px; color: var(--dim); margin: 10px 0 4px; }
-  input, select {
+  input, select, textarea {
     width: 100%; padding: 12px; font-size: 16px; border-radius: 8px;
     border: 1px solid var(--line); background: var(--panel2); color: var(--text);
   }
+  textarea { resize: vertical; font-family: inherit; }
   input::placeholder { color: #5c6b7a; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .savebtn {
@@ -189,6 +190,15 @@
 
   <!-- SETUP -->
   <section class="view" id="view-setup">
+    <fieldset>
+      <legend>✨ Paste a Confirmation</legend>
+      <label>Southwest, rental, or hotel confirmation email — paste it, AI fills the form below</label>
+      <textarea id="f_paste" rows="5" placeholder="Copy the confirmation email from Gmail and paste the whole thing here. One at a time or all three stacked together — both work."></textarea>
+      <button class="savebtn" style="margin-top:10px" onclick="aiFill()">FILL FROM EMAIL</button>
+      <div class="note" id="aiStatus"></div>
+      <label>Anthropic API key (one time — stays on this phone)</label>
+      <input id="f_apikey" type="password" placeholder="sk-ant-...">
+    </fieldset>
     <fieldset>
       <legend>Flight</legend>
       <div class="row2">
@@ -730,6 +740,7 @@ function fillForm() {
   document.getElementById('f_rental').innerHTML = '<option value="">— pick one —</option>' +
     Object.keys(RENTALS).map(c => '<option value="' + c + '">' + RENTALS[c].name + '</option>').join('');
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
+  document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
     ['from','to','airline','flightOut','flightRet','precheck','depTimeOut','depTimeRet','heavyBag','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
@@ -755,6 +766,101 @@ function saveTrip() {
   showView('trip');
 }
 function val(id) { return document.getElementById(id).value.trim(); }
+
+// =========================================================
+// AI FILL — paste a confirmation email, Claude fills the form
+// Same pattern as Job Tracker's receipt extraction.
+// =========================================================
+async function aiFill() {
+  const status = document.getElementById('aiStatus');
+  const text = val('f_paste');
+  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
+  if (!text) { status.textContent = 'Paste a confirmation email in the box first.'; return; }
+  if (!key) { status.textContent = 'Need your Anthropic API key (one time) — same one Job Tracker uses.'; return; }
+  localStorage.setItem('th_apikey', key);
+  status.textContent = '⏳ Reading the email…';
+  const prompt =
+`Extract travel booking details from the confirmation email below. Reply with ONLY a JSON object, no other text, using exactly these keys (null for anything not present):
+{
+ "from": "3-letter IATA code of outbound origin airport or null",
+ "to": "3-letter IATA code of outbound destination airport or null",
+ "airline": "2-letter IATA airline code (WN=Southwest, AA, DL, UA, AS, B6, NK, F9) or null",
+ "flightOut": "outbound flight number, digits only, or null",
+ "flightRet": "return flight number, digits only, or null",
+ "depTimeOut": "outbound scheduled departure time as 24h HH:MM local, or null",
+ "depTimeRet": "return scheduled departure time as 24h HH:MM local, or null",
+ "flightConf": "airline confirmation code or null",
+ "rental": "one of: enterprise, hertz, avis, budget, national, alamo, dollar, thrifty, sixt — or null",
+ "rentalConf": "rental confirmation number or null",
+ "hotelName": "hotel name or null",
+ "hotelAddr": "hotel street address, city, state or null",
+ "hotelConf": "hotel confirmation number or null"
+}
+
+EMAIL:
+` + text;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      status.textContent = '❌ API error ' + res.status + (res.status === 401 ? ' — check the API key.' : '. Try again.');
+      console.error(err);
+      return;
+    }
+    const data = await res.json();
+    let raw = (data.content && data.content[0] && data.content[0].text || '').trim();
+    raw = raw.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    applyExtracted(JSON.parse(raw), status);
+  } catch (e) {
+    status.textContent = '❌ Couldn\'t read that one (' + e.message + '). Try pasting just one confirmation at a time.';
+  }
+}
+
+// Merge extracted fields into the form. Only fills what it found —
+// never wipes something you already entered.
+function applyExtracted(x, status) {
+  const filled = [], warns = [];
+  const set = (id, v) => { if (v) { document.getElementById(id).value = v; return true; } return false; };
+  if (x.from) {
+    if (AIRPORTS[x.from]) { set('f_from', x.from); filled.push('from ' + x.from); }
+    else warns.push('no playbook for ' + x.from + ' yet');
+  }
+  if (x.to) {
+    if (AIRPORTS[x.to]) { set('f_to', x.to); filled.push('to ' + x.to); }
+    else warns.push('no playbook for ' + x.to + ' yet');
+  }
+  if (x.airline && AIRLINES[x.airline]) { set('f_airline', x.airline); filled.push(AIRLINES[x.airline].name); }
+  if (set('f_flightOut', x.flightOut)) filled.push('flight out');
+  if (set('f_flightRet', x.flightRet)) filled.push('flight back');
+  if (set('f_depTimeOut', x.depTimeOut)) filled.push('dep time out');
+  if (set('f_depTimeRet', x.depTimeRet)) filled.push('dep time back');
+  if (x.rental && RENTALS[x.rental]) { set('f_rental', x.rental); filled.push(RENTALS[x.rental].name); }
+  if (set('f_rentalConf', x.rentalConf)) filled.push('rental conf');
+  if (set('f_hotelName', x.hotelName)) filled.push('hotel');
+  if (set('f_hotelAddr', x.hotelAddr)) filled.push('hotel address');
+  if (set('f_hotelConf', x.hotelConf)) filled.push('hotel conf');
+  document.getElementById('f_paste').value = '';
+  if (!filled.length) {
+    status.textContent = '🤷 Didn\'t find booking details in that. Make sure the whole email came along in the paste.';
+    return;
+  }
+  status.textContent = '✅ Filled: ' + filled.join(', ') + '.' +
+    (warns.length ? ' ⚠ ' + warns.join('; ') + ' — leave the dropdown as-is or tell Claude to add that airport.' : '') +
+    ' Check it over, add the next email, or hit SAVE TRIP.';
+}
 
 // =========================================================
 // BOOT

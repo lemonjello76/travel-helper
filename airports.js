@@ -106,7 +106,7 @@ window.AIRPORTS = {
         standard: "From ticketing Level 3, follow signs to the West or East checkpoint per your gate range. After screening you ride an automated people-mover out to your airside — budget time for it."
       },
       gates: {
-        WN: "Southwest flies from gates 100–129 (Airside 4, A side) — people-mover from the East/West core after security. Check the app for the exact gate.",
+        WN: "Southwest flies from gates 100–129 (Airside 2, A side) — people-mover from the core after security. Check the app for the exact gate.",
         default: "Gates 1–129 across four airsides, each reached by people-mover from the main core. Check monitors for your gate and shuttle."
       },
       rentalReturn: "Rental returns for North Terminal are in garages A/B at the terminal — follow the rental return signs on airport approach, drop the car, and you're an elevator ride from ticketing. Terminal C rentals return to garage C."
@@ -116,7 +116,7 @@ window.AIRPORTS = {
     arrival: {
       toBaggage: "Off the plane, follow the crowd to the people-mover back to the main core, then down to Level 2 for baggage claim (A or B side — check monitors).",
       baggage: "North Terminal baggage claim is Level 2, split A side / B side. Southwest bags usually come out on the A side — check the carousel monitors.",
-      toRental: "Rental counters and cars are IN the parking garages across from the terminal — Level 1. From baggage claim Level 2, cross the pedestrian bridge to garage A or B per your rental company's signs. No shuttle needed at North Terminal.",
+      toRental: "Easiest rental pickup of any airport you fly: from baggage claim Level 2, take the elevator or escalator down to Level 1 — rental counters are right there, cars in the attached garage. No shuttle, no train.",
       toParking: "Cross the pedestrian bridge from Level 2 to garage A or B — elevators to your level."
     }
   }

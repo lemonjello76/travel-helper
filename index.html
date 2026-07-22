@@ -214,7 +214,11 @@
         <div><label>TSA PreCheck?</label><select id="f_precheck"><option value="yes">Yes</option><option value="no">No</option></select></div>
       </div>
       <div class="row2">
+        <div><label>Departure date (outbound)</label><input id="f_depDateOut" type="date"></div>
         <div><label>Departure time (outbound)</label><input id="f_depTimeOut" type="time"></div>
+      </div>
+      <div class="row2">
+        <div><label>Departure date (return)</label><input id="f_depDateRet" type="date"></div>
         <div><label>Departure time (return)</label><input id="f_depTimeRet" type="time"></div>
       </div>
       <div class="row2">
@@ -406,7 +410,16 @@ function buildSchedule() {
   const walk = t.toGate || 20;
   const rentalDrop = (!out && trip.rental) ? (t.rentalReturn || 20) : 0;
   const [h, m] = depTime.split(':').map(Number);
-  const depDate = new Date(); depDate.setHours(h, m, 0, 0);
+  // Anchor to the actual flight DATE (not "today") — otherwise the countdown
+  // screams BEHIND the night before and the return leg is wrong all week.
+  const dStr = out ? trip.depDateOut : trip.depDateRet;
+  let depDate;
+  if (dStr) {
+    const [Y, Mo, D] = dStr.split('-').map(Number);
+    depDate = new Date(Y, Mo - 1, D, h, m, 0, 0);
+  } else {
+    depDate = new Date(); depDate.setHours(h, m, 0, 0); // no date saved — old behavior
+  }
   const minus = n => new Date(depDate.getTime() - n * 60000);
   const BOARD = 30; // boarding starts ~30 min before departure
   schedule = {
@@ -469,6 +482,7 @@ function renderBoardBar() {
   if (!schedule.board || !trip) { bar.style.display = 'none'; return; }
   const at = schedule.board.at;
   if (Date.now() > schedule.flight.at.getTime() + 45 * 60000) { bar.style.display = 'none'; return; }
+  if (at - Date.now() > 24 * 3600000) { bar.style.display = 'none'; return; } // >24h out — no countdown noise yet
   const ms = at - Date.now();
   const late = ms < 0, abs = Math.abs(ms);
   const h = Math.floor(abs / 3600000), m = Math.floor(abs % 3600000 / 60000), s = Math.floor(abs % 60000 / 1000);
@@ -742,7 +756,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depTimeOut','depTimeRet','heavyBag','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','heavyBag','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -753,7 +767,8 @@ function saveTrip() {
   trip = {
     from: val('f_from'), to: val('f_to'), airline: val('f_airline'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
-    depTimeOut: val('f_depTimeOut'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
+    depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
+    depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')
@@ -787,7 +802,9 @@ async function aiFill() {
  "airline": "2-letter IATA airline code (WN=Southwest, AA, DL, UA, AS, B6, NK, F9) or null",
  "flightOut": "outbound flight number, digits only, or null",
  "flightRet": "return flight number, digits only, or null",
+ "depDateOut": "outbound departure date as YYYY-MM-DD, or null",
  "depTimeOut": "outbound scheduled departure time as 24h HH:MM local, or null",
+ "depDateRet": "return departure date as YYYY-MM-DD, or null",
  "depTimeRet": "return scheduled departure time as 24h HH:MM local, or null",
  "flightConf": "airline confirmation code or null",
  "rental": "one of: enterprise, hertz, avis, budget, national, alamo, dollar, thrifty, sixt — or null",
@@ -845,7 +862,9 @@ function applyExtracted(x, status) {
   if (x.airline && AIRLINES[x.airline]) { set('f_airline', x.airline); filled.push(AIRLINES[x.airline].name); }
   if (set('f_flightOut', x.flightOut)) filled.push('flight out');
   if (set('f_flightRet', x.flightRet)) filled.push('flight back');
+  if (set('f_depDateOut', x.depDateOut)) filled.push('dep date out');
   if (set('f_depTimeOut', x.depTimeOut)) filled.push('dep time out');
+  if (set('f_depDateRet', x.depDateRet)) filled.push('dep date back');
   if (set('f_depTimeRet', x.depTimeRet)) filled.push('dep time back');
   if (x.rental && RENTALS[x.rental]) { set('f_rental', x.rental); filled.push(RENTALS[x.rental].name); }
   if (set('f_rentalConf', x.rentalConf)) filled.push('rental conf');

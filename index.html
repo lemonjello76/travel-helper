@@ -514,6 +514,41 @@ function toggleVoice() {
 }
 
 // =========================================================
+// WATCH / NOTIFICATIONS — each phase change posts a notification
+// with a NEXT button. Galaxy Watch mirrors it: tap NEXT on the
+// wrist, the phone advances and the next prompt hits the buds.
+// =========================================================
+async function notifyPhase(p, sched) {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg || !reg.showNotification) return;
+    const body = (sched ? sched.label + ' ' + fmtClock(sched.at) + ' — ' : '') + (p.lines[0] || '');
+    reg.showNotification('Step ' + (state.phase + 1) + ': ' + p.title, {
+      body: body.slice(0, 120),
+      tag: 'th-phase',            // replaces the previous phase card on the wrist
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      actions: [
+        { action: 'next', title: 'NEXT ▸' },
+        { action: 'say', title: '🔊 SAY IT' }
+      ]
+    });
+  } catch (e) { /* notifications are a bonus, never break the flow */ }
+}
+function handleSwMessage(data) {
+  if (!data || !phases.length) return;
+  if (data.cmd === 'next') setPhase(state.phase + 1, true);
+  if (data.cmd === 'say') {
+    const s = schedule[phases[state.phase].id];
+    speak(phases[state.phase].voice + (s ? ' ' + bufferVoice(s.at) : ''));
+  }
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', e => handleSwMessage(e.data));
+}
+
+// =========================================================
 // NAVIGATION
 // =========================================================
 function setPhase(i, announce) {
@@ -524,6 +559,7 @@ function setPhase(i, announce) {
     lastSpokenPhase = state.phase;
     const s = schedule[phases[state.phase].id];
     speak(phases[state.phase].voice + (s ? ' ' + bufferVoice(s.at) : ''));
+    notifyPhase(phases[state.phase], s);
   }
 }
 function toggleDirection() {
@@ -890,8 +926,13 @@ renderHeader();
 renderTrip();
 renderHub();
 fillForm();
-// Ask for GPS on first touch, not on boot (cleaner permission flow)
-window.addEventListener('pointerdown', startGeo, { once: true });
+// Ask for GPS + notification permission on first touch, not on boot
+window.addEventListener('pointerdown', () => {
+  startGeo();
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}, { once: true });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>

@@ -15,6 +15,23 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Notification actions — lets the Galaxy Watch's mirrored notification
+// drive the app: NEXT advances the phase, SAY IT repeats the voice line.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const cmd = e.action || 'focus';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      if (list.length) {
+        list[0].postMessage({ cmd });
+        if (list[0].focus) return list[0].focus();
+      } else if (cmd === 'focus') {
+        return clients.openWindow('./');
+      }
+    })
+  );
+});
+
 // App shell: network-first (so updates land), cache fallback (so it works at 35,000 ft).
 // Weather API: network-only, fail silently — the app handles it.
 self.addEventListener('fetch', e => {

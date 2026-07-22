@@ -24,7 +24,7 @@ next move in your earbuds at each step, then hands you off to Waze at the rental
   needs a native wrapper; v2 candidate). The NEXT button always works.
 - No live flight status yet (gate changes / delays) — v1.5 with FlightAware AeroAPI.
 - TSA wait times are a link to the airport's page, not a live number in-app yet.
-- Playbooks: LAS + TPA only so far.
+- Playbooks: LAS + TPA + MCO so far. (MCO added 7/22/26 for the Orlando pivot — verify airside/gate details on first use.)
 
 ## Stack
 

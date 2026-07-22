@@ -79,6 +79,46 @@ window.AIRPORTS = {
       toRental: "From baggage claim, follow the SkyConnect / Rental Cars signs — escalators and elevators take you up to the SkyConnect station. Free train, every 2 minutes, about a 5 minute ride to the Rental Car Center. All rental counters are in that one building.",
       toParking: "Take the elevator or escalator from baggage claim up to the parking garage — Short Term sits right on top of the Main Terminal."
     }
+  },
+
+  MCO: {
+    code: "MCO",
+    name: "Orlando International",
+    city: "Orlando",
+    lat: 28.4312, lon: -81.3081,
+    tz: "America/New_York",
+    waitTimesUrl: "https://orlandoairports.net/security/",
+    mapUrl: "https://orlandoairports.net/terminals/",
+    // Added 2026-07-22 for the Orlando pivot — big, busy airport. Double-check
+    // your terminal on the confirmation: North Terminal (A & B sides, most
+    // domestic incl. Southwest/Spirit/Frontier) vs Terminal C (JetBlue + intl).
+    departure: {
+      parking: {
+        default: "North Terminal: garages A and B sit right at the terminal — park on the side matching your airline (Southwest = A side). Terminal C (JetBlue) has its own garage C. Follow the overhead signs."
+      },
+      checkin: {
+        WN: "Southwest check-in is North Terminal, A side, Level 3 (ticketing). Kiosks and counters along the atrium.",
+        default: "North Terminal ticketing is Level 3 — A side and B side, check signs for your airline. JetBlue and most international use Terminal C."
+      },
+      skycap: "Skycap curbside check-in usually runs at the North Terminal departures curb (Level 3) — if it's staffed, a heavy bag goes curbside and you skip the counter line.",
+      security: {
+        precheck: "North Terminal has two checkpoints — West (A side) and East (B side). PreCheck lanes at both; use the one printed for your gate range, lines feed the people-mover shuttles to the airsides.",
+        standard: "From ticketing Level 3, follow signs to the West or East checkpoint per your gate range. After screening you ride an automated people-mover out to your airside — budget time for it."
+      },
+      gates: {
+        WN: "Southwest flies from gates 100–129 (Airside 4, A side) — people-mover from the East/West core after security. Check the app for the exact gate.",
+        default: "Gates 1–129 across four airsides, each reached by people-mover from the main core. Check monitors for your gate and shuttle."
+      },
+      rentalReturn: "Rental returns for North Terminal are in garages A/B at the terminal — follow the rental return signs on airport approach, drop the car, and you're an elevator ride from ticketing. Terminal C rentals return to garage C."
+    },
+    // toGate includes the people-mover ride out to the airside — MCO is BIG
+    times: { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 25, rentalReturn: 20 },
+    arrival: {
+      toBaggage: "Off the plane, follow the crowd to the people-mover back to the main core, then down to Level 2 for baggage claim (A or B side — check monitors).",
+      baggage: "North Terminal baggage claim is Level 2, split A side / B side. Southwest bags usually come out on the A side — check the carousel monitors.",
+      toRental: "Rental counters and cars are IN the parking garages across from the terminal — Level 1. From baggage claim Level 2, cross the pedestrian bridge to garage A or B per your rental company's signs. No shuttle needed at North Terminal.",
+      toParking: "Cross the pedestrian bridge from Level 2 to garage A or B — elevators to your level."
+    }
   }
 
 };

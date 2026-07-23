@@ -170,6 +170,7 @@
 
 <header>
   <h1>Travel<span>Helper</span></h1>
+  <button class="hbtn" id="cloudBtn" onclick="syncNow()" title="Cloud sync">☁</button>
   <button class="hbtn" id="dirBtn" onclick="toggleDirection()">OUT</button>
   <button class="hbtn" id="voiceBtn" onclick="toggleVoice()">🔊</button>
 </header>
@@ -245,7 +246,7 @@
       <input id="f_homeAddr" placeholder="optional — e.g. KOA Las Vegas">
     </fieldset>
     <button class="savebtn" onclick="saveTrip()">SAVE TRIP</button>
-    <p class="note">Everything stays on this phone. Playbooks loaded for: <span id="airportList"></span>. New airports get added as you fly to them.</p>
+    <p class="note">Trip syncs to the cloud (☁ up top) — save here, it shows up on the other device. The API key is the one thing that does NOT sync: paste it once per device. Playbooks loaded for: <span id="airportList"></span>. New airports get added as you fly to them.</p>
   </section>
 </main>
 
@@ -255,6 +256,8 @@
   <button id="tab-setup" onclick="showView('setup')">Setup</button>
 </nav>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script src="airports.js"></script>
 <script>
 // =========================================================
@@ -275,6 +278,72 @@ function loadAll() {
 function saveState() { localStorage.setItem('th_state', JSON.stringify(state)); }
 
 // =========================================================
+// CLOUD SYNC — same Firebase project as Job Tracker.
+// Syncs the TRIP FILE between phone and Surface Pro.
+// The Anthropic API key is NOT synced on purpose — the cloud
+// path is readable if someone knows the project ID, and an
+// API key in there means someone else billing your account.
+// Key gets pasted once per device instead.
+// =========================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDsx-VoWLfIqpKuYUaDsp0MFlc-24xwH8s",
+  authDomain: "mistamerica-job-tracker.firebaseapp.com",
+  projectId: "mistamerica-job-tracker",
+  storageBucket: "mistamerica-job-tracker.firebasestorage.app",
+  messagingSenderId: "491853979701",
+  appId: "1:491853979701:web:64da6ffeb49e9c6e4d517c"
+};
+let cloudDoc = null;
+try {
+  if (typeof firebase !== 'undefined' && firebase.initializeApp) {
+    firebase.initializeApp(firebaseConfig);
+    cloudDoc = firebase.firestore().collection('users').doc('lyle-mistamerica')
+      .collection('travel').doc('trip');
+  }
+} catch (e) { console.warn('Firebase init failed:', e); }
+
+function localSavedAt() { return parseInt(localStorage.getItem('th_tripSavedAt') || '0', 10); }
+function setCloudDot(cls, title) {
+  const b = document.getElementById('cloudBtn');
+  if (!b) return;
+  b.style.color = cls === 'ok' ? 'var(--ok)' : cls === 'busy' ? 'var(--warn)' : cls === 'err' ? 'var(--bad)' : 'var(--dim)';
+  b.title = title || 'Cloud sync';
+}
+async function pushCloudTrip() {
+  if (!cloudDoc || !trip) return;
+  try {
+    setCloudDot('busy', 'Pushing…');
+    await cloudDoc.set({ trip, updatedAt: localSavedAt() || Date.now() });
+    setCloudDot('ok', 'Synced');
+  } catch (e) { console.warn('cloud push failed', e); setCloudDot('err', 'Sync error: ' + (e.code || e.message)); }
+}
+async function pullCloudTrip() {
+  if (!cloudDoc) return false;
+  try {
+    setCloudDot('busy', 'Pulling…');
+    const snap = await cloudDoc.get();
+    if (snap.exists) {
+      const d = snap.data();
+      if (d && d.trip && (d.updatedAt || 0) > localSavedAt()) {
+        trip = d.trip;
+        localStorage.setItem('th_trip', JSON.stringify(trip));
+        localStorage.setItem('th_tripSavedAt', String(d.updatedAt));
+        buildPhases(); renderHeader(); renderTrip(); renderHub(); fillForm();
+        banner('☁ Trip updated from the cloud (edited on your other device).');
+        setCloudDot('ok', 'Synced — pulled newer trip');
+        return true;
+      }
+    }
+    setCloudDot('ok', 'Synced');
+  } catch (e) { console.warn('cloud pull failed', e); setCloudDot('err', 'Sync error: ' + (e.code || e.message)); }
+  return false;
+}
+async function syncNow() {
+  const pulled = await pullCloudTrip();
+  if (!pulled && trip) await pushCloudTrip();
+}
+
+// =========================================================
 // PHASE ENGINE — builds the assembly line for current leg
 // =========================================================
 function buildPhases() {
@@ -291,6 +360,8 @@ function buildPhases() {
 
   const pick = (obj, key) => (obj && (obj[key] || obj.default)) || '';
   const alBtn = al.appUrl ? [{ label: al.name + ' App', url: al.appUrl }] : [];
+  // Live flight status — FlightAware public page, no key needed (SWA1234 style)
+  const fsBtn = (al.icao && flight) ? [{ label: '📡 Flight Status', url: 'https://www.flightaware.com/live/flight/' + al.icao + flight }] : [];
 
   if (out || !rental) {
     phases.push({
@@ -328,25 +399,28 @@ function buildPhases() {
     id: 'gate', title: 'To Your Gate',
     lines: [pick(dep.departure.gates, trip.airline)],
     voice: pick(dep.departure.gates, trip.airline),
-    actions: alBtn
+    actions: alBtn.concat(fsBtn)
   });
   phases.push({
     id: 'board', title: 'Boarding',
     lines: ['Pull up your boarding pass.', flight ? al.name + ' ' + flight + ' to ' + arr.city + '.' : ''],
     voice: 'Time to board. Pull up your boarding pass in the ' + al.name + ' app.',
-    actions: alBtn
+    actions: alBtn.concat(fsBtn)
   });
   phases.push({
     id: 'flight', title: 'In Flight ✈ ' + arr.code,
     lines: ['Next stop ' + arr.name + '.', 'When you land, hit NEXT (or keep the app open — GPS flips it for you) and I\'ll walk you to baggage and the rental car.'],
     voice: 'Have a good flight. When you land in ' + arr.city + ', I\'ll take it from there.',
-    actions: []
+    actions: fsBtn
   });
   phases.push({
     id: 'deplane', title: 'Welcome to ' + arr.city,
     lines: [arr.arrival.toBaggage],
     voice: 'Welcome to ' + arr.city + '. ' + arr.arrival.toBaggage,
-    actions: []
+    actions: [
+      { label: '📰 ' + arr.city + ' News', url: newsUrl(arr) },
+      { label: '📰 National News', url: 'https://news.google.com/' }
+    ]
   });
   phases.push({
     id: 'baggage', title: 'Baggage Claim',
@@ -391,6 +465,31 @@ function buildPhases() {
 }
 
 function wazeUrl(q) { return 'https://waze.com/ul?q=' + encodeURIComponent(q) + '&navigate=yes'; }
+function newsUrl(ap) { return 'https://news.google.com/search?q=' + encodeURIComponent(ap.city + ' ' + (ap.state || '') + ' when:1d'); }
+
+// Spoken landing weather — fires when you hit the deplane phase.
+// Pulls the destination NWS forecast and reads it in your buds.
+async function speakArrivalWx() {
+  const out = state.dir === 'out';
+  const arr = AIRPORTS[out ? trip.to : trip.from];
+  if (!arr) return;
+  try {
+    const pt = await (await fetch('https://api.weather.gov/points/' + arr.lat + ',' + arr.lon)).json();
+    const fc = await (await fetch(pt.properties.forecast)).json();
+    const p = fc.properties.periods[0];
+    let txt = 'Weather in ' + arr.city + ': ' + p.temperature + ' degrees, ' + p.shortForecast.toLowerCase() + '.';
+    try {
+      const al = await (await fetch('https://api.weather.gov/alerts/active?point=' + arr.lat + ',' + arr.lon)).json();
+      if (al.features && al.features.length) txt += ' Heads up — active alert: ' + al.features[0].properties.event + '.';
+    } catch (e) {}
+    // still on the deplane card? pin the line to it so it's readable too
+    if (phases[state.phase] && phases[state.phase].id === 'deplane') {
+      phases[state.phase].lines.push('🌤 ' + txt);
+      renderTrip();
+    }
+    speak(txt);
+  } catch (e) { /* no signal yet — weather is a bonus, not a blocker */ }
+}
 
 // =========================================================
 // SCHEDULE — works backward from departure time.
@@ -560,6 +659,7 @@ function setPhase(i, announce) {
     const s = schedule[phases[state.phase].id];
     speak(phases[state.phase].voice + (s ? ' ' + bufferVoice(s.at) : ''));
     notifyPhase(phases[state.phase], s);
+    if (phases[state.phase].id === 'deplane') speakArrivalWx();
   }
 }
 function toggleDirection() {
@@ -639,8 +739,10 @@ function renderHub() {
   const rental = RENTALS[trip.rental];
   const wazeDest = trip.hotelAddr || trip.hotelName;
 
+  const hubFlight = out ? trip.flightOut : trip.flightRet;
   let html = '<div class="sectionhead">Launch</div><div class="hubgrid">';
   if (al && al.appUrl) html += hub('✈️', al.name, al.appUrl);
+  if (al && al.icao && hubFlight) html += hub('📡', 'Flight Status', 'https://www.flightaware.com/live/flight/' + al.icao + hubFlight);
   if (rental) html += hub('🚙', rental.name, rental.url);
   if (wazeDest) html += hub('🗺️', 'Waze → Hotel', wazeUrl(wazeDest), 'waze');
   if (trip.hotelName) html += hub('🏨', trip.hotelName, 'https://www.google.com/maps/search/' + encodeURIComponent(trip.hotelName + ' ' + (trip.hotelAddr || '')));
@@ -697,7 +799,7 @@ function hub(ico, label, url, extra) {
   return '<a class="hubbtn ' + (extra || '') + '" href="' + url + '" target="_blank" rel="noopener">' +
     '<span class="ico">' + ico + '</span>' + label + '</a>';
 }
-function regionOf(ap) { return ap.city === 'Tampa' ? 'Florida' : (ap.city === 'Las Vegas' ? 'Nevada' : ''); }
+function regionOf(ap) { return ap.state || ''; }
 
 // =========================================================
 // WEATHER — National Weather Service (free, no key)
@@ -810,9 +912,11 @@ function saveTrip() {
     homeAddr: val('f_homeAddr')
   };
   localStorage.setItem('th_trip', JSON.stringify(trip));
+  localStorage.setItem('th_tripSavedAt', String(Date.now()));
   state.phase = 0; state.dir = 'out'; lastSpokenPhase = -1;
   geoFired = { depart: false, arrive: false };
   saveState(); buildPhases(); renderHeader(); renderTrip(); renderHub();
+  pushCloudTrip();
   speak('Trip saved. ' + AIRPORTS[trip.from].city + ' to ' + AIRPORTS[trip.to].city + '. Ready when you are.');
   showView('trip');
 }
@@ -926,6 +1030,7 @@ renderHeader();
 renderTrip();
 renderHub();
 fillForm();
+pullCloudTrip(); // grab a newer trip if the other device saved one
 // Ask for GPS + notification permission on first touch, not on boot
 window.addEventListener('pointerdown', () => {
   startGeo();

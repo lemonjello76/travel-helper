@@ -9,7 +9,7 @@ window.AIRPORTS = {
   LAS: {
     code: "LAS",
     name: "Harry Reid International",
-    city: "Las Vegas",
+    city: "Las Vegas", state: "Nevada",
     lat: 36.0840, lon: -115.1537,
     tz: "America/Los_Angeles",
     waitTimesUrl: "https://www.harryreidairport.com/security-at-las",
@@ -47,7 +47,7 @@ window.AIRPORTS = {
   TPA: {
     code: "TPA",
     name: "Tampa International",
-    city: "Tampa",
+    city: "Tampa", state: "Florida",
     lat: 27.9755, lon: -82.5332,
     tz: "America/New_York",
     waitTimesUrl: "https://www.tampaairport.com/",
@@ -84,7 +84,7 @@ window.AIRPORTS = {
   MCO: {
     code: "MCO",
     name: "Orlando International",
-    city: "Orlando",
+    city: "Orlando", state: "Florida",
     lat: 28.4312, lon: -81.3081,
     tz: "America/New_York",
     waitTimesUrl: "https://orlandoairports.net/security/",
@@ -127,15 +127,16 @@ window.AIRPORTS = {
 // AIRLINE REGISTRY — code: {name, appUrl}
 // appUrl opens the airline's mobile site / app via app links.
 // ============================================================
+// icao = the 3-letter code FlightAware uses (SWA1234 = Southwest 1234)
 window.AIRLINES = {
-  WN: { name: "Southwest",  appUrl: "https://mobile.southwest.com" },
-  AA: { name: "American",   appUrl: "https://www.aa.com" },
-  DL: { name: "Delta",      appUrl: "https://www.delta.com" },
-  UA: { name: "United",     appUrl: "https://www.united.com" },
-  AS: { name: "Alaska",     appUrl: "https://www.alaskaair.com" },
-  B6: { name: "JetBlue",    appUrl: "https://www.jetblue.com" },
-  NK: { name: "Spirit",     appUrl: "https://www.spirit.com" },
-  F9: { name: "Frontier",   appUrl: "https://www.flyfrontier.com" }
+  WN: { name: "Southwest",  icao: "SWA", appUrl: "https://mobile.southwest.com" },
+  AA: { name: "American",   icao: "AAL", appUrl: "https://www.aa.com" },
+  DL: { name: "Delta",      icao: "DAL", appUrl: "https://www.delta.com" },
+  UA: { name: "United",     icao: "UAL", appUrl: "https://www.united.com" },
+  AS: { name: "Alaska",     icao: "ASA", appUrl: "https://www.alaskaair.com" },
+  B6: { name: "JetBlue",    icao: "JBU", appUrl: "https://www.jetblue.com" },
+  NK: { name: "Spirit",     icao: "NKS", appUrl: "https://www.spirit.com" },
+  F9: { name: "Frontier",   icao: "FFT", appUrl: "https://www.flyfrontier.com" }
 };
 
 // ============================================================

@@ -1,5 +1,5 @@
 // Travel Helper service worker — offline app shell
-const CACHE = 'travel-helper-v1';
+const CACHE = 'travel-helper-v2'; // v2: cloud sync + flight status + landing weather + news
 const SHELL = ['./', './index.html', './airports.js', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png'];
 

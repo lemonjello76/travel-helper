@@ -272,6 +272,9 @@ let geoFired = { depart: false, arrive: false };
 let lastPos = null;
 // auto-advance: dwell-then-leave detection state
 let auto = { anchor: null, dwellStart: 0, dwellDone: false, leaveCount: 0 };
+// pit-stop watcher (post-security, pre-boarding)
+let pit = { anchor: null, start: 0, prompted: false, wrapWarned: false };
+const PIT_DWELL_MIN = 10, WRAP_UP_MIN = 15;
 // phases where "stood still a while, then walked away" = step complete
 const AUTO_PHASES = { checkin: 4, security: 4, baggage: 3 }; // dwell minutes
 const DWELL_RADIUS_M = 35, LEAVE_RADIUS_M = 80;
@@ -658,6 +661,7 @@ if ('serviceWorker' in navigator) {
 function setPhase(i, announce) {
   state.phase = Math.max(0, Math.min(phases.length - 1, i));
   auto.anchor = null; // fresh dwell tracking for the new phase
+  pit = { anchor: null, start: 0, prompted: false, wrapWarned: false };
   saveState();
   renderTrip();
   if (announce && state.phase !== lastSpokenPhase) {
@@ -869,6 +873,7 @@ function onPos(pos) {
   const { latitude: la, longitude: lo, accuracy } = pos.coords;
   lastPos = { lat: la, lon: lo };
   autoDetect(la, lo, accuracy || 999, Date.now());
+  pitDetect(la, lo, accuracy || 999, Date.now());
   const out = state.dir === 'out';
   const dep = AIRPORTS[out ? trip.from : trip.to];
   const arr = AIRPORTS[out ? trip.to : trip.from];
@@ -925,6 +930,49 @@ function autoDetect(la, lo, accuracy, now) {
   } else {
     auto.leaveCount = 0;
   }
+}
+
+// Pit-stop watcher — only lives in the "To Your Gate" phase (past security,
+// not yet boarding). Parked 10 min anywhere = friendly check-in with the
+// boarding clock. Inside 15 min to boarding = one wrap-it-up call, moving or not.
+function pitDetect(la, lo, accuracy, now) {
+  if (!phases.length || phases[state.phase].id !== 'gate') return;
+  if (schedule.board && !pit.wrapWarned) {
+    const mins = Math.round((schedule.board.at - now) / 60000);
+    if (mins <= WRAP_UP_MIN && mins > -5) {
+      pit.wrapWarned = true;
+      const msg = mins > 0
+        ? 'Boarding in ' + mins + ' minutes — time to wrap it up and get to the gate.'
+        : 'Boarding has started — get to the gate.';
+      banner('⏰ ' + msg); speak(msg); notifyText('⏰ Boarding soon', msg);
+    }
+  }
+  if (accuracy > 60) return;
+  if (!pit.anchor) { pit.anchor = { la, lo }; pit.start = now; pit.prompted = false; return; }
+  const dist = distKm(la, lo, pit.anchor.la, pit.anchor.lo) * 1000;
+  if (dist > DWELL_RADIUS_M) { pit.anchor = { la, lo }; pit.start = now; pit.prompted = false; return; }
+  if (!pit.prompted && now - pit.start >= PIT_DWELL_MIN * 60000) {
+    pit.prompted = true;
+    let msg = 'Taking a pit stop?';
+    if (schedule.board) {
+      const mins = Math.round((schedule.board.at - now) / 60000);
+      msg += mins > 0
+        ? ' No sweat — ' + mins + ' minutes until boarding. I\'ve got the clock.'
+        : ' Boarding already started — get moving.';
+    } else {
+      msg += ' No departure time set, so watch your own clock.';
+    }
+    banner('🍟 ' + msg); speak(msg); notifyText('🍟 Pit stop', msg);
+  }
+}
+async function notifyText(title, body) {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg && reg.showNotification) reg.showNotification(title, {
+      body: body.slice(0, 120), tag: 'th-pit', icon: 'icons/icon-192.png'
+    });
+  } catch (e) {}
 }
 
 function banner(msg) {

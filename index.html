@@ -270,6 +270,11 @@ let lastSpokenPhase = -1;
 let geoWatchId = null;
 let geoFired = { depart: false, arrive: false };
 let lastPos = null;
+// auto-advance: dwell-then-leave detection state
+let auto = { anchor: null, dwellStart: 0, dwellDone: false, leaveCount: 0 };
+// phases where "stood still a while, then walked away" = step complete
+const AUTO_PHASES = { checkin: 4, security: 4, baggage: 3 }; // dwell minutes
+const DWELL_RADIUS_M = 35, LEAVE_RADIUS_M = 80;
 
 function loadAll() {
   try { trip = JSON.parse(localStorage.getItem('th_trip')); } catch (e) { trip = null; }
@@ -652,6 +657,7 @@ if ('serviceWorker' in navigator) {
 // =========================================================
 function setPhase(i, announce) {
   state.phase = Math.max(0, Math.min(phases.length - 1, i));
+  auto.anchor = null; // fresh dwell tracking for the new phase
   saveState();
   renderTrip();
   if (announce && state.phase !== lastSpokenPhase) {
@@ -661,6 +667,11 @@ function setPhase(i, announce) {
     notifyPhase(phases[state.phase], s);
     if (phases[state.phase].id === 'deplane') speakArrivalWx();
   }
+}
+function toggleAuto() {
+  state.auto = state.auto === false ? true : false;
+  auto.anchor = null;
+  saveState(); renderTrip();
 }
 function toggleDirection() {
   state.dir = state.dir === 'out' ? 'ret' : 'out';
@@ -694,8 +705,12 @@ function renderTrip() {
   }
   const p = phases[state.phase];
   const dirLabel = state.dir === 'out' ? trip.from + ' → ' + trip.to : trip.to + ' → ' + trip.from;
+  const autoOn = state.auto !== false;
   let html = '<div class="stepmeta"><span class="stepnum">Step ' + (state.phase + 1) + ' of ' + phases.length +
-    '</span><span class="dirchip">' + dirLabel + '</span></div>';
+    '</span><span>' +
+    '<button class="hbtn' + (autoOn ? ' on' : '') + '" style="margin-right:8px" onclick="toggleAuto()">' +
+    (autoOn ? '🤖 AUTO' : '👆 MANUAL') + '</button>' +
+    '<span class="dirchip">' + dirLabel + '</span></span></div>';
   html += '<div class="timechip" id="timeChip" style="display:none"></div>';
   html += '<div class="phasecard"><h2>' + p.title + '</h2>';
   p.lines.filter(Boolean).forEach(l => html += '<p>' + l + '</p>');
@@ -846,13 +861,14 @@ async function wxCard(ap) {
 function startGeo() {
   if (!('geolocation' in navigator) || geoWatchId !== null) return;
   geoWatchId = navigator.geolocation.watchPosition(onPos, () => {}, {
-    enableHighAccuracy: false, maximumAge: 60000, timeout: 30000
+    enableHighAccuracy: true, maximumAge: 10000, timeout: 30000
   });
 }
 function onPos(pos) {
   if (!trip || !phases.length) return;
-  const { latitude: la, longitude: lo } = pos.coords;
+  const { latitude: la, longitude: lo, accuracy } = pos.coords;
   lastPos = { lat: la, lon: lo };
+  autoDetect(la, lo, accuracy || 999, Date.now());
   const out = state.dir === 'out';
   const dep = AIRPORTS[out ? trip.from : trip.to];
   const arr = AIRPORTS[out ? trip.to : trip.from];
@@ -875,6 +891,42 @@ function distKm(a, b, c, d) {
   const x = Math.sin(dLa / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(dLo / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
+// Dwell-then-leave: stood in one spot long enough (bag drop, security
+// line), then walked well away from it => that station is done, advance.
+function autoDetect(la, lo, accuracy, now) {
+  if (state.auto === false) return;
+  const dwellMin = AUTO_PHASES[phases[state.phase] && phases[state.phase].id];
+  if (!dwellMin) { auto.anchor = null; return; }
+  if (accuracy > 60) return; // fix too fuzzy to trust indoors
+  if (!auto.anchor) {
+    auto.anchor = { la, lo }; auto.dwellStart = now; auto.dwellDone = false; auto.leaveCount = 0;
+    return;
+  }
+  const dist = distKm(la, lo, auto.anchor.la, auto.anchor.lo) * 1000;
+  if (!auto.dwellDone) {
+    if (dist > DWELL_RADIUS_M) {
+      // still wandering — re-anchor to where you are now
+      auto.anchor = { la, lo }; auto.dwellStart = now;
+    } else if (now - auto.dwellStart >= dwellMin * 60000) {
+      auto.dwellDone = true; auto.leaveCount = 0;
+    }
+    return;
+  }
+  // dwell complete — now watch for a real departure (2 fixes in a row past the fence)
+  if (dist > LEAVE_RADIUS_M) {
+    auto.leaveCount++;
+    if (auto.leaveCount >= 2) {
+      const done = phases[state.phase].title;
+      auto.anchor = null;
+      banner('✓ ' + done + ' looks done — moving on.');
+      speak('Looks like ' + done + ' is done.');
+      setPhase(state.phase + 1, true);
+    }
+  } else {
+    auto.leaveCount = 0;
+  }
+}
+
 function banner(msg) {
   const b = document.getElementById('geoBanner');
   b.textContent = msg; b.classList.add('show');

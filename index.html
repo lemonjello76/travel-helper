@@ -203,9 +203,12 @@
     <fieldset>
       <legend>Flight</legend>
       <div class="row2">
-        <div><label>From (airport code)</label><select id="f_from"></select></div>
-        <div><label>To (airport code)</label><select id="f_to"></select></div>
+        <div><label>From (any 3-letter code)</label><input id="f_from" list="apCodes" maxlength="3" style="text-transform:uppercase" placeholder="LAS"></div>
+        <div><label>To (any 3-letter code)</label><input id="f_to" list="apCodes" maxlength="3" style="text-transform:uppercase" placeholder="MCO"></div>
       </div>
+      <datalist id="apCodes"></datalist>
+      <button class="hbtn" style="margin-top:8px;width:100%" onclick="buildMissingPlaybooks()">🤖 BUILD MISSING AIRPORT PLAYBOOKS (AI)</button>
+      <div class="note" id="pbStatus"></div>
       <div class="row2">
         <div><label>Airline</label><select id="f_airline"></select></div>
         <div><label>Flight # outbound</label><input id="f_flightOut" placeholder="e.g. 1234"></div>
@@ -282,6 +285,34 @@ const DWELL_RADIUS_M = 35, LEAVE_RADIUS_M = 80;
 function loadAll() {
   try { trip = JSON.parse(localStorage.getItem('th_trip')); } catch (e) { trip = null; }
   try { const s = JSON.parse(localStorage.getItem('th_state')); if (s) state = s; } catch (e) {}
+  // AI-built playbooks saved on this phone ride on top of the shipped library
+  try { Object.assign(AIRPORTS, JSON.parse(localStorage.getItem('th_custom_airports') || '{}')); } catch (e) {}
+}
+
+// Generic fallback — ANY airport code runs the assembly line, just with
+// universal follow-the-signs guidance instead of local knowledge.
+function makeGeneric(code) {
+  return {
+    code, name: code + ' Airport', city: code, lat: null, lon: null,
+    waitTimesUrl: null, mapUrl: null, unverified: 'generic',
+    departure: {
+      parking: { default: 'No playbook for ' + code + ' yet — follow signs for your airline\'s terminal and park in its garage.' },
+      checkin: { default: 'Find your airline\'s check-in counters — follow the terminal signs or ask a skycap.' },
+      security: {
+        precheck: 'Find the checkpoint for your gate area — PreCheck lanes are marked at the checkpoint entrance.',
+        standard: 'Find the checkpoint for your gate area and get in line early — no local intel on this one.'
+      },
+      gates: { default: 'Check the monitors for your gate and how to get there (some airports need a train or shuttle).' },
+      rentalReturn: 'Follow the Rental Car Return signs on airport approach, then signs to the terminal.'
+    },
+    times: { bagDrop: 15, securityPre: 20, securityStd: 40, toGate: 25, rentalReturn: 25 },
+    arrival: {
+      toBaggage: 'Off the plane, follow the Baggage Claim signs — watch for trains or shuttles at bigger airports.',
+      baggage: 'Check the monitors for your carousel.',
+      toRental: 'Follow the Rental Car signs from baggage claim — could be in-terminal, a shuttle, or a train.',
+      toParking: 'Follow the Parking signs back to your garage.'
+    }
+  };
 }
 function saveState() { localStorage.setItem('th_state', JSON.stringify(state)); }
 
@@ -360,11 +391,17 @@ function buildPhases() {
   const out = state.dir === 'out';
   const depCode = out ? trip.from : trip.to;
   const arrCode = out ? trip.to : trip.from;
-  const dep = AIRPORTS[depCode], arr = AIRPORTS[arrCode];
+  const dep = AIRPORTS[depCode] || makeGeneric(depCode);
+  const arr = AIRPORTS[arrCode] || makeGeneric(arrCode);
   const al = AIRLINES[trip.airline] || { name: trip.airline, appUrl: null };
   const flight = out ? trip.flightOut : trip.flightRet;
   const rental = RENTALS[trip.rental];
-  if (!dep || !arr) return;
+  const depWarn = dep.unverified ? (dep.unverified === 'generic'
+    ? '⚠ No playbook for ' + dep.code + ' — generic guidance, trust the airport signs.'
+    : '⚠ AI-built playbook for ' + dep.code + ' (unverified) — if a sign disagrees with me, the sign wins.') : '';
+  const arrWarn = arr.unverified ? (arr.unverified === 'generic'
+    ? '⚠ No playbook for ' + arr.code + ' — generic guidance, trust the airport signs.'
+    : '⚠ AI-built playbook for ' + arr.code + ' (unverified) — if a sign disagrees with me, the sign wins.') : '';
 
   const pick = (obj, key) => (obj && (obj[key] || obj.default)) || '';
   const alBtn = al.appUrl ? [{ label: al.name + ' App', url: al.appUrl }] : [];
@@ -374,14 +411,14 @@ function buildPhases() {
   if (out || !rental) {
     phases.push({
       id: 'drive', title: 'Head to ' + dep.code,
-      lines: [dep.name + ', ' + dep.city + '.', pick(dep.departure.parking, trip.airline)],
+      lines: [depWarn, dep.name + ', ' + dep.city + '.', pick(dep.departure.parking, trip.airline)],
       voice: 'Heading to ' + dep.name + '. ' + pick(dep.departure.parking, trip.airline),
       actions: [{ label: 'Waze to ' + dep.code, url: wazeUrl(dep.name + ' ' + dep.city) }]
     });
   } else {
     phases.push({
       id: 'drive', title: 'Return the Rental',
-      lines: ['Head to ' + dep.name + '.', dep.departure.rentalReturn || 'Follow Rental Car Return signs at the airport.'],
+      lines: [depWarn, 'Head to ' + dep.name + '.', dep.departure.rentalReturn || 'Follow Rental Car Return signs at the airport.'],
       voice: 'Heading to ' + dep.name + '. ' + (dep.departure.rentalReturn || ''),
       actions: [{ label: 'Waze to ' + dep.code, url: wazeUrl(dep.name + ' rental car return ' + dep.city) }]
     });
@@ -423,7 +460,7 @@ function buildPhases() {
   });
   phases.push({
     id: 'deplane', title: 'Welcome to ' + arr.city,
-    lines: [arr.arrival.toBaggage],
+    lines: [arrWarn, arr.arrival.toBaggage],
     voice: 'Welcome to ' + arr.city + '. ' + arr.arrival.toBaggage,
     actions: [
       { label: '📰 ' + arr.city + ' News', url: newsUrl(arr) },
@@ -765,8 +802,8 @@ function renderHub() {
   if (rental) html += hub('🚙', rental.name, rental.url);
   if (wazeDest) html += hub('🗺️', 'Waze → Hotel', wazeUrl(wazeDest), 'waze');
   if (trip.hotelName) html += hub('🏨', trip.hotelName, 'https://www.google.com/maps/search/' + encodeURIComponent(trip.hotelName + ' ' + (trip.hotelAddr || '')));
-  if (dep) html += hub('🛂', depCode + ' Waits', dep.waitTimesUrl);
-  if (arr) html += hub('🛬', arrCode + ' Map', arr.mapUrl);
+  if (dep && dep.waitTimesUrl) html += hub('🛂', depCode + ' Waits', dep.waitTimesUrl);
+  if (arr && arr.mapUrl) html += hub('🛬', arrCode + ' Map', arr.mapUrl);
   if (arr) html += hub('📰', arr.city + ' News', 'https://news.google.com/search?q=' + encodeURIComponent(arr.city + ' ' + regionOf(arr)));
   if (dep) html += hub('📰', dep.city + ' News', 'https://news.google.com/search?q=' + encodeURIComponent(dep.city + ' ' + regionOf(dep)));
   html += '</div>';
@@ -832,7 +869,7 @@ async function loadWeather() {
   let html = '';
   for (const code of codes) {
     const ap = AIRPORTS[code];
-    if (!ap) continue;
+    if (!ap || !ap.lat) continue; // no coords, no forecast
     html += await wxCard(ap);
   }
   wrap.innerHTML = html || '<div class="wxcard"><p class="dim">No forecast available.</p></div>';
@@ -985,9 +1022,8 @@ function banner(msg) {
 // SETUP FORM
 // =========================================================
 function fillForm() {
-  const apSel = Object.keys(AIRPORTS).map(c => '<option value="' + c + '">' + c + ' — ' + AIRPORTS[c].city + '</option>').join('');
-  document.getElementById('f_from').innerHTML = apSel;
-  document.getElementById('f_to').innerHTML = apSel;
+  document.getElementById('apCodes').innerHTML =
+    Object.keys(AIRPORTS).map(c => '<option value="' + c + '">' + AIRPORTS[c].city + '</option>').join('');
   document.getElementById('f_airline').innerHTML = Object.keys(AIRLINES).map(c => '<option value="' + c + '">' + AIRLINES[c].name + '</option>').join('');
   document.getElementById('f_rental').innerHTML = '<option value="">— pick one —</option>' +
     Object.keys(RENTALS).map(c => '<option value="' + c + '">' + RENTALS[c].name + '</option>').join('');
@@ -1003,7 +1039,7 @@ function fillForm() {
 }
 function saveTrip() {
   trip = {
-    from: val('f_from'), to: val('f_to'), airline: val('f_airline'),
+    from: val('f_from').toUpperCase(), to: val('f_to').toUpperCase(), airline: val('f_airline'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
     depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
@@ -1017,10 +1053,85 @@ function saveTrip() {
   geoFired = { depart: false, arrive: false };
   saveState(); buildPhases(); renderHeader(); renderTrip(); renderHub();
   pushCloudTrip();
-  speak('Trip saved. ' + AIRPORTS[trip.from].city + ' to ' + AIRPORTS[trip.to].city + '. Ready when you are.');
+  const cityOf = c => (AIRPORTS[c] && AIRPORTS[c].city) || c;
+  speak('Trip saved. ' + cityOf(trip.from) + ' to ' + cityOf(trip.to) + '. Ready when you are.');
   showView('trip');
 }
 function val(id) { return document.getElementById(id).value.trim(); }
+
+// =========================================================
+// AI PLAYBOOK BUILDER — type any airport code, Claude drafts the
+// full playbook. Saved on this phone, flagged unverified until it
+// survives a real trip.
+// =========================================================
+async function buildMissingPlaybooks() {
+  const status = document.getElementById('pbStatus');
+  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
+  if (!key) { status.textContent = 'Need your Anthropic API key below first.'; return; }
+  const codes = [val('f_from').toUpperCase(), val('f_to').toUpperCase()]
+    .filter(c => /^[A-Z]{3}$/.test(c) && !AIRPORTS[c]);
+  if (!codes.length) { status.textContent = 'Both airports already have playbooks. ✓'; return; }
+  for (const code of codes) {
+    status.textContent = '⏳ Building ' + code + ' playbook…';
+    try {
+      const pb = await genAirport(code, key);
+      installPlaybook(code, pb);
+      status.textContent = '✅ ' + code + ' (' + pb.city + ') playbook built — marked unverified: trust the signs over it until it survives a trip.';
+    } catch (e) {
+      status.textContent = '❌ ' + code + ' failed (' + e.message + '). The generic fallback will still guide you.';
+      return;
+    }
+  }
+}
+async function genAirport(code, key) {
+  const airlineName = (AIRLINES[val('f_airline')] || {}).name || '';
+  const prompt =
+`Build an airport navigation playbook for ${code}${airlineName ? ' with specifics for ' + airlineName : ''}. Reply with ONLY a JSON object, exactly this shape (concise, spoken-aloud friendly strings; be accurate about terminals/levels/trains; null if truly unknown):
+{
+ "code":"${code}","name":"airport name","city":"city","lat":0.0,"lon":0.0,
+ "waitTimesUrl":"official airport site URL or null","mapUrl":"official terminal map URL or null",
+ "departure":{
+  "parking":{"default":"where to park for this airline's terminal"},
+  "checkin":{${airlineName ? '"' + val('f_airline') + '":"where ' + airlineName + ' check-in is (terminal + level)",' : ''}"default":"general check-in guidance"},
+  "skycap":"curbside check-in note or null",
+  "security":{"precheck":"PreCheck checkpoint guidance","standard":"standard checkpoint guidance"},
+  "gates":{${airlineName ? '"' + val('f_airline') + '":"which gates/concourse ' + airlineName + ' uses and how to get there",' : ''}"default":"general gate guidance"},
+  "rentalReturn":"how rental car return works here"
+ },
+ "times":{"bagDrop":15,"securityPre":15,"securityStd":35,"toGate":20,"rentalReturn":20},
+ "arrival":{
+  "toBaggage":"gate to baggage claim (trains/shuttles/levels)",
+  "baggage":"baggage claim specifics",
+  "toRental":"baggage claim to rental cars (shuttle/train/walk + rough minutes)",
+  "toParking":"baggage claim back to the parking garage"
+ }
+}
+Adjust the "times" numbers to this airport's real scale (big airport with trains = longer toGate).`;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 1500, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!res.ok) throw new Error('API ' + res.status);
+  const data = await res.json();
+  let raw = (data.content && data.content[0] && data.content[0].text || '').trim();
+  raw = raw.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+  return JSON.parse(raw);
+}
+function installPlaybook(code, pb) {
+  pb.code = code;
+  pb.unverified = 'ai';
+  if (!pb.times) pb.times = { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 20, rentalReturn: 20 };
+  const customs = JSON.parse(localStorage.getItem('th_custom_airports') || '{}');
+  customs[code] = pb;
+  localStorage.setItem('th_custom_airports', JSON.stringify(customs));
+  AIRPORTS[code] = pb;
+  fillForm();
+  if (trip) { buildPhases(); renderTrip(); renderHub(); }
+}
 
 // =========================================================
 // AI FILL — paste a confirmation email, Claude fills the form
@@ -1092,12 +1203,12 @@ function applyExtracted(x, status) {
   const filled = [], warns = [];
   const set = (id, v) => { if (v) { document.getElementById(id).value = v; return true; } return false; };
   if (x.from) {
-    if (AIRPORTS[x.from]) { set('f_from', x.from); filled.push('from ' + x.from); }
-    else warns.push('no playbook for ' + x.from + ' yet');
+    set('f_from', x.from); filled.push('from ' + x.from);
+    if (!AIRPORTS[x.from]) warns.push('no playbook for ' + x.from + ' yet');
   }
   if (x.to) {
-    if (AIRPORTS[x.to]) { set('f_to', x.to); filled.push('to ' + x.to); }
-    else warns.push('no playbook for ' + x.to + ' yet');
+    set('f_to', x.to); filled.push('to ' + x.to);
+    if (!AIRPORTS[x.to]) warns.push('no playbook for ' + x.to + ' yet');
   }
   if (x.airline && AIRLINES[x.airline]) { set('f_airline', x.airline); filled.push(AIRLINES[x.airline].name); }
   if (set('f_flightOut', x.flightOut)) filled.push('flight out');
@@ -1117,7 +1228,7 @@ function applyExtracted(x, status) {
     return;
   }
   status.textContent = '✅ Filled: ' + filled.join(', ') + '.' +
-    (warns.length ? ' ⚠ ' + warns.join('; ') + ' — leave the dropdown as-is or tell Claude to add that airport.' : '') +
+    (warns.length ? ' ⚠ ' + warns.join('; ') + ' — type the code in anyway and hit BUILD MISSING PLAYBOOKS.' : '') +
     ' Check it over, add the next email, or hit SAVE TRIP.';
 }
 

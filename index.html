@@ -502,7 +502,9 @@ function buildPhases() {
   });
   phases.push({
     id: 'done', title: out ? 'Trip Complete' : 'Home Safe',
-    lines: [out ? 'You made it. Flip the toggle to RET when it\'s time to head home.' : 'Round trip done. Nice work.'],
+    lines: [out
+      ? 'You made it. I\'ll flip to the return leg automatically on return day' + (tripDT('ret') ? '.' : ' — once a return date is set (Setup).')
+      : 'Round trip done. Nice work.'],
     voice: out ? 'You made it.' : 'Home safe. Round trip done.',
     actions: []
   });
@@ -510,6 +512,76 @@ function buildPhases() {
 }
 
 function wazeUrl(q) { return 'https://waze.com/ul?q=' + encodeURIComponent(q) + '&navigate=yes'; }
+
+// =========================================================
+// DATE RECONCILE — the trip file's flight dates drive the state.
+// Outbound 12h past = trip parks at Complete. Return day = auto-flip
+// to the return leg. Return 12h past = Home Safe.
+// =========================================================
+function tripDT(dir) {
+  if (!trip) return null;
+  const d = dir === 'out' ? trip.depDateOut : trip.depDateRet;
+  const t = dir === 'out' ? trip.depTimeOut : trip.depTimeRet;
+  if (!d || !t) return null;
+  const [Y, Mo, D] = d.split('-').map(Number);
+  const [h, m] = t.split(':').map(Number);
+  return new Date(Y, Mo - 1, D, h, m).getTime();
+}
+function reconcileTrip(announce) {
+  if (!trip || !phases.length) return;
+  const H12 = 12 * 3600000, H24 = 24 * 3600000, now = Date.now();
+  const doneIdx = phases.length - 1;
+  const flightIdx = phases.findIndex(p => p.id === 'flight');
+  const outDT = tripDT('out'), retDT = tripDT('ret');
+  // Only auto-move a STALE state (still on pre-arrival phases). If you're
+  // working the arrival steps yourself, hands off.
+  const stale = state.phase <= flightIdx;
+  if (state.dir === 'out' && outDT && now > outDT + H12 && stale) {
+    if (retDT && now >= retDT - H24) {
+      // return window (or later) — flip the leg
+      state.dir = 'ret'; state.phase = 0; lastSpokenPhase = -1;
+      geoFired = { depart: false, arrive: false };
+      buildPhases();
+      state.phase = now > retDT + H12 ? phases.length - 1 : 0; // way past = Home Safe
+      saveState(); renderHeader(); renderTrip(); renderHub();
+      if (state.phase === 0) {
+        banner('🔄 Return day — flipped to the return leg.');
+        if (announce) speak('Return day. I flipped over to the return leg — ' +
+          ((AIRPORTS[trip.to] || {}).city || trip.to) + ' back to ' + ((AIRPORTS[trip.from] || {}).city || trip.from) + '.');
+      }
+      return;
+    }
+    // outbound long done, return not close yet — rest at Trip Complete
+    state.phase = doneIdx; saveState(); renderTrip();
+  } else if (state.dir === 'ret' && retDT && now > retDT + H12 && stale) {
+    state.phase = doneIdx; saveState(); renderTrip();
+  }
+}
+setInterval(() => reconcileTrip(true), 60000);
+
+function clearTrip() {
+  if (!confirm('Clear this trip? (Playbooks and API key stay.)')) return;
+  localStorage.removeItem('th_trip');
+  trip = null; phases = []; schedule = {};
+  state.dir = 'out'; state.phase = 0; saveState();
+  renderHeader(); renderTrip(); renderHub(); fillForm();
+  document.getElementById('boardBar').style.display = 'none';
+}
+
+// Google Calendar deep link for a flight leg (5h block, local time)
+function gcalUrl(dir) {
+  const dt = tripDT(dir);
+  if (!dt) return null;
+  const out = dir === 'out';
+  const f = out ? trip.flightOut : trip.flightRet;
+  const a = out ? trip.from : trip.to, b = out ? trip.to : trip.from;
+  const fmt = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + 'T' + p(d.getHours()) + p(d.getMinutes()) + '00'; };
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+    '&text=' + encodeURIComponent('✈ ' + (AIRLINES[trip.airline] || {}).name + ' ' + (f || '') + ' — ' + a + ' → ' + b) +
+    '&dates=' + fmt(dt) + '/' + fmt(dt + 5 * 3600000) +
+    '&details=' + encodeURIComponent('Travel Helper: https://lemonjello76.github.io/travel-helper/');
+}
 function newsUrl(ap) { return 'https://news.google.com/search?q=' + encodeURIComponent(ap.city + ' ' + (ap.state || '') + ' when:1d'); }
 
 // Spoken landing weather — fires when you hit the deplane phase.
@@ -765,6 +837,9 @@ function renderTrip() {
     });
     html += '</div>';
   }
+  if (p.id === 'done') {
+    html += '<div class="actions"><button class="abtn" onclick="clearTrip()">🧹 CLEAR TRIP</button></div>';
+  }
   html += '</div>';
   html += '<div class="navrow">' +
     '<button onclick="setPhase(state.phase-1,false)">◂ BACK</button>' +
@@ -806,6 +881,8 @@ function renderHub() {
   if (arr && arr.mapUrl) html += hub('🛬', arrCode + ' Map', arr.mapUrl);
   if (arr) html += hub('📰', arr.city + ' News', 'https://news.google.com/search?q=' + encodeURIComponent(arr.city + ' ' + regionOf(arr)));
   if (dep) html += hub('📰', dep.city + ' News', 'https://news.google.com/search?q=' + encodeURIComponent(dep.city + ' ' + regionOf(dep)));
+  if (gcalUrl('out')) html += hub('📅', 'Cal: Flight Out', gcalUrl('out'));
+  if (gcalUrl('ret')) html += hub('📅', 'Cal: Flight Back', gcalUrl('ret'));
   html += '</div>';
 
   // Bag Math — is the premium seat cheaper once bag fees are counted?
@@ -1237,6 +1314,7 @@ function applyExtracted(x, status) {
 // =========================================================
 loadAll();
 buildPhases();
+reconcileTrip(false); // dates decide where the trip actually stands
 renderHeader();
 renderTrip();
 renderHub();

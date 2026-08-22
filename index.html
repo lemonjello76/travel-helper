@@ -229,6 +229,23 @@
         <div><label>Overweight bag (50+ lb)?</label><select id="f_heavyBag"><option value="no">No</option><option value="yes">Yes</option></select></div>
         <div></div>
       </div>
+      <label style="margin-top:14px;color:var(--accent2)">— Connection (leave blank if nonstop) —</label>
+      <div class="row2">
+        <div><label>Outbound connects at</label><input id="f_connOut" list="apCodes" maxlength="3" style="text-transform:uppercase" placeholder="e.g. DEN"></div>
+        <div><label>Flight # (2nd leg out)</label><input id="f_flightOut2" placeholder="e.g. 456"></div>
+      </div>
+      <div class="row2">
+        <div><label>2nd leg departs (out)</label><input id="f_depTimeOut2" type="time"></div>
+        <div></div>
+      </div>
+      <div class="row2">
+        <div><label>Return connects at</label><input id="f_connRet" list="apCodes" maxlength="3" style="text-transform:uppercase" placeholder="e.g. DEN"></div>
+        <div><label>Flight # (2nd leg back)</label><input id="f_flightRet2" placeholder="e.g. 789"></div>
+      </div>
+      <div class="row2">
+        <div><label>2nd leg departs (back)</label><input id="f_depTimeRet2" type="time"></div>
+        <div></div>
+      </div>
     </fieldset>
     <fieldset>
       <legend>Rental Car</legend>
@@ -452,12 +469,45 @@ function buildPhases() {
     voice: 'Time to board. Pull up your boarding pass in the ' + al.name + ' app.',
     actions: alBtn.concat(fsBtn)
   });
-  phases.push({
-    id: 'flight', title: 'In Flight ✈ ' + arr.code,
-    lines: ['Next stop ' + arr.name + '.', 'When you land, hit NEXT (or keep the app open — GPS flips it for you) and I\'ll walk you to baggage and the rental car.'],
-    voice: 'Have a good flight. When you land in ' + arr.city + ', I\'ll take it from there.',
-    actions: fsBtn
-  });
+  const conn = ((out ? trip.connOut : trip.connRet) || '').toUpperCase();
+  const cap = conn ? (AIRPORTS[conn] || makeGeneric(conn)) : null;
+  const flight2 = out ? trip.flightOut2 : trip.flightRet2;
+  if (cap) {
+    phases.push({
+      id: 'flight', title: 'In Flight ✈ ' + conn,
+      lines: ['Leg 1 — connection in ' + cap.city + '.',
+        'When you land, STAY AIRSIDE — do not exit security. I\'ll point you at the next gate.'],
+      voice: 'Have a good flight. When you land in ' + cap.city + ', stay inside security — I\'ll take it from there.',
+      actions: fsBtn
+    });
+    phases.push({
+      id: 'conn', title: 'Connection — ' + conn,
+      lines: ['Stay airside — do NOT exit security or go near baggage claim. Your bag rides through on its own.',
+        'Flight ' + (flight2 || '2') + ' to ' + arr.city + ' — check the ' + al.name + ' app or monitors for the gate.',
+        cap.unverified ? '' : pick(cap.departure.gates, trip.airline)],
+      voice: 'Welcome to ' + cap.city + '. Stay inside security — your bag transfers on its own. Check the app for your next gate.',
+      actions: alBtn
+    });
+    phases.push({
+      id: 'board2', title: 'Boarding Flight 2',
+      lines: ['Pull up your boarding pass.', flight2 ? al.name + ' ' + flight2 + ' to ' + arr.city + '.' : ''],
+      voice: 'Time to board your connection to ' + arr.city + '.',
+      actions: alBtn.concat(fsBtn)
+    });
+    phases.push({
+      id: 'flight2', title: 'In Flight ✈ ' + arr.code,
+      lines: ['Last leg — next stop ' + arr.name + '.', 'When you land, hit NEXT (or keep the app open — GPS flips it) and I\'ll walk you to baggage and the car.'],
+      voice: 'Last leg. When you land in ' + arr.city + ', I\'ll take it from there.',
+      actions: fsBtn
+    });
+  } else {
+    phases.push({
+      id: 'flight', title: 'In Flight ✈ ' + arr.code,
+      lines: ['Next stop ' + arr.name + '.', 'When you land, hit NEXT (or keep the app open — GPS flips it for you) and I\'ll walk you to baggage and the rental car.'],
+      voice: 'Have a good flight. When you land in ' + arr.city + ', I\'ll take it from there.',
+      actions: fsBtn
+    });
+  }
   phases.push({
     id: 'deplane', title: 'Welcome to ' + arr.city,
     lines: [arrWarn, arr.arrival.toBaggage],
@@ -527,12 +577,25 @@ function tripDT(dir) {
   const [h, m] = t.split(':').map(Number);
   return new Date(Y, Mo - 1, D, h, m).getTime();
 }
+// 2nd-leg departure (same-day as leg 1, rolls to next day for red-eyes)
+function tripDT2(dir) {
+  if (!trip) return null;
+  const conn = dir === 'out' ? trip.connOut : trip.connRet;
+  const t2 = dir === 'out' ? trip.depTimeOut2 : trip.depTimeRet2;
+  const base = tripDT(dir);
+  if (!conn || !t2 || !base) return null;
+  const [h, m] = t2.split(':').map(Number);
+  const d2 = new Date(base); d2.setHours(h, m, 0, 0);
+  if (d2.getTime() <= base) d2.setTime(d2.getTime() + 86400000);
+  return d2.getTime();
+}
+function lastDepDT(dir) { return tripDT2(dir) || tripDT(dir); }
 function reconcileTrip(announce) {
   if (!trip || !phases.length) return;
   const H12 = 12 * 3600000, H24 = 24 * 3600000, now = Date.now();
   const doneIdx = phases.length - 1;
-  const flightIdx = phases.findIndex(p => p.id === 'flight');
-  const outDT = tripDT('out'), retDT = tripDT('ret');
+  const flightIdx = Math.max(phases.findIndex(p => p.id === 'flight'), phases.findIndex(p => p.id === 'flight2'));
+  const outDT = lastDepDT('out'), retDT = lastDepDT('ret');
   // Only auto-move a STALE state (still on pre-arrival phases). If you're
   // working the arrival steps yourself, hands off.
   const stale = state.phase <= flightIdx;
@@ -647,6 +710,29 @@ function buildSchedule() {
     flight:   { label: 'Wheels up',          at: depDate }
   };
   if (rentalDrop) schedule.drive.at = minus(BOARD + walk + sec + bag + rentalDrop);
+  // Connection leg: second boarding clock anchored to the 2nd-leg departure
+  const connCode = (out ? trip.connOut : trip.connRet) || '';
+  const t2 = out ? trip.depTimeOut2 : trip.depTimeRet2;
+  if (connCode && t2) {
+    const [h2, m2] = t2.split(':').map(Number);
+    let dep2 = new Date(depDate); dep2.setHours(h2, m2, 0, 0);
+    if (dep2 <= depDate) dep2 = new Date(dep2.getTime() + 86400000); // red-eye rollover
+    const b2 = new Date(dep2.getTime() - BOARD * 60000);
+    schedule.conn = { label: 'Flight 2 boards', at: b2 };
+    schedule.board2 = { label: 'Boarding starts', at: b2 };
+    schedule.flight2 = { label: 'Wheels up', at: dep2 };
+  }
+}
+// Which boarding clock is live right now? Leg 2 once you're at/past the
+// connection (or leg 1 already departed); leg 1 otherwise.
+function boardInfo() {
+  if (!schedule.board) return null;
+  const connIdx = phases.findIndex(p => p.id === 'conn');
+  if (connIdx >= 0 && schedule.board2 &&
+      (state.phase >= connIdx || Date.now() > schedule.flight.at.getTime())) {
+    return { at: schedule.board2.at, dep: schedule.flight2.at, leg: 2 };
+  }
+  return { at: schedule.board.at, dep: schedule.flight.at, leg: 1 };
 }
 function fmtClock(d) { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function bufferInfo(at) {
@@ -695,9 +781,10 @@ setInterval(renderTimeChip, 30000);
 // Permanent boarding countdown — ticks every second, shows anywhere
 function renderBoardBar() {
   const bar = document.getElementById('boardBar');
-  if (!schedule.board || !trip) { bar.style.display = 'none'; return; }
-  const at = schedule.board.at;
-  if (Date.now() > schedule.flight.at.getTime() + 45 * 60000) { bar.style.display = 'none'; return; }
+  const bi = boardInfo();
+  if (!bi || !trip) { bar.style.display = 'none'; return; }
+  const at = bi.at;
+  if (Date.now() > bi.dep.getTime() + 45 * 60000) { bar.style.display = 'none'; return; }
   if (at - Date.now() > 24 * 3600000) { bar.style.display = 'none'; return; } // >24h out — no countdown noise yet
   const ms = at - Date.now();
   const late = ms < 0, abs = Math.abs(ms);
@@ -706,9 +793,11 @@ function renderBoardBar() {
   const txt = late ? 'BOARD NOW' : (h ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s));
   const cls = late ? 'late' : (ms < 30 * 60000 ? 'tight' : 'ok');
   const out = state.dir === 'out';
-  const route = out ? trip.from + ' → ' + trip.to : trip.to + ' → ' + trip.from;
+  const conn = (out ? trip.connOut : trip.connRet) || '';
+  const route = (out ? [trip.from, conn, trip.to] : [trip.to, conn, trip.from]).filter(Boolean).join(' → ');
   bar.style.display = 'flex';
-  bar.innerHTML = '<span class="lbl">Boarding ' + fmtClock(at) + '<b>' + route + '</b></span>' +
+  bar.innerHTML = '<span class="lbl">Boarding ' + fmtClock(at) + (bi.leg === 2 ? ' · LEG 2' : '') +
+    '<b>' + route + '</b></span>' +
     '<span class="clock ' + cls + '">' + txt + '</span>';
 }
 setInterval(renderBoardBar, 1000);
@@ -817,7 +906,8 @@ function renderTrip() {
     return;
   }
   const p = phases[state.phase];
-  const dirLabel = state.dir === 'out' ? trip.from + ' → ' + trip.to : trip.to + ' → ' + trip.from;
+  const connD = (state.dir === 'out' ? trip.connOut : trip.connRet) || '';
+  const dirLabel = (state.dir === 'out' ? [trip.from, connD, trip.to] : [trip.to, connD, trip.from]).filter(Boolean).join(' → ');
   const autoOn = state.auto !== false;
   let html = '<div class="stepmeta"><span class="stepnum">Step ' + (state.phase + 1) + ' of ' + phases.length +
     '</span><span>' +
@@ -942,7 +1032,7 @@ async function loadWeather() {
   const wrap = document.getElementById('wxWrap');
   if (!wrap) return;
   const out = state.dir === 'out';
-  const codes = [out ? trip.from : trip.to, out ? trip.to : trip.from];
+  const codes = [out ? trip.from : trip.to, (out ? trip.connOut : trip.connRet) || null, out ? trip.to : trip.from].filter(Boolean);
   let html = '';
   for (const code of codes) {
     const ap = AIRPORTS[code];
@@ -999,7 +1089,16 @@ function onPos(pos) {
     setPhase(state.phase + 1, true);
   }
   // Landed: in-flight phase + GPS reappears near arrival airport
-  if (arr && pid === 'flight' && !geoFired.arrive && distKm(la, lo, arr.lat, arr.lon) < 6) {
+  const connCode = (out ? trip.connOut : trip.connRet) || '';
+  const connAp = connCode ? AIRPORTS[connCode] : null;
+  if (connAp && connAp.lat && pid === 'flight' && !geoFired.conn && distKm(la, lo, connAp.lat, connAp.lon) < 6) {
+    geoFired.conn = true;
+    banner('🛬 On the ground at ' + connCode + ' — connection mode.');
+    setPhase(state.phase + 1, true);
+    return;
+  }
+  const finalFlight = connCode ? 'flight2' : 'flight';
+  if (arr && arr.lat && pid === finalFlight && !geoFired.arrive && distKm(la, lo, arr.lat, arr.lon) < 6) {
     geoFired.arrive = true;
     banner('🛬 Wheels down at ' + arr.code + ' — arrival mode.');
     setPhase(state.phase + 1, true);
@@ -1050,9 +1149,12 @@ function autoDetect(la, lo, accuracy, now) {
 // not yet boarding). Parked 10 min anywhere = friendly check-in with the
 // boarding clock. Inside 15 min to boarding = one wrap-it-up call, moving or not.
 function pitDetect(la, lo, accuracy, now) {
-  if (!phases.length || phases[state.phase].id !== 'gate') return;
-  if (schedule.board && !pit.wrapWarned) {
-    const mins = Math.round((schedule.board.at - now) / 60000);
+  if (!phases.length) return;
+  const pid = phases[state.phase].id;
+  if (pid !== 'gate' && pid !== 'conn') return; // layovers are prime pit-stop territory
+  const bi = boardInfo();
+  if (bi && !pit.wrapWarned) {
+    const mins = Math.round((bi.at - now) / 60000);
     if (mins <= WRAP_UP_MIN && mins > -5) {
       pit.wrapWarned = true;
       const msg = mins > 0
@@ -1068,10 +1170,14 @@ function pitDetect(la, lo, accuracy, now) {
   if (!pit.prompted && now - pit.start >= PIT_DWELL_MIN * 60000) {
     pit.prompted = true;
     let msg = 'Taking a pit stop?';
-    if (schedule.board) {
-      const mins = Math.round((schedule.board.at - now) / 60000);
+    const bi2 = boardInfo();
+    if (bi2) {
+      const mins = Math.round((bi2.at - now) / 60000);
+      const say = mins >= 60
+        ? Math.floor(mins / 60) + ' hour' + (Math.floor(mins / 60) > 1 ? 's' : '') + (mins % 60 ? ' ' + (mins % 60) + ' minutes' : '')
+        : mins + ' minutes';
       msg += mins > 0
-        ? ' No sweat — ' + mins + ' minutes until boarding. I\'ve got the clock.'
+        ? ' No sweat — ' + say + ' until boarding. I\'ve got the clock.'
         : ' Boarding already started — get moving.';
     } else {
       msg += ' No departure time set, so watch your own clock.';
@@ -1107,7 +1213,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','heavyBag','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1120,6 +1226,8 @@ function saveTrip() {
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
     depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
+    connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
+    connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')
@@ -1145,7 +1253,8 @@ async function buildMissingPlaybooks() {
   const status = document.getElementById('pbStatus');
   const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
   if (!key) { status.textContent = 'Need your Anthropic API key below first.'; return; }
-  const codes = [val('f_from').toUpperCase(), val('f_to').toUpperCase()]
+  const codes = [...new Set([val('f_from').toUpperCase(), val('f_to').toUpperCase(),
+    val('f_connOut').toUpperCase(), val('f_connRet').toUpperCase()])]
     .filter(c => /^[A-Z]{3}$/.test(c) && !AIRPORTS[c]);
   if (!codes.length) { status.textContent = 'Both airports already have playbooks. ✓'; return; }
   for (const code of codes) {
@@ -1234,6 +1343,12 @@ async function aiFill() {
  "depTimeOut": "outbound scheduled departure time as 24h HH:MM local, or null",
  "depDateRet": "return departure date as YYYY-MM-DD, or null",
  "depTimeRet": "return scheduled departure time as 24h HH:MM local, or null",
+ "connOut": "3-letter IATA code of the outbound CONNECTION airport if the outbound has a layover, else null",
+ "flightOut2": "second-leg outbound flight number (digits only) if connecting, else null",
+ "depTimeOut2": "second-leg outbound departure time from the connection as 24h HH:MM local, else null",
+ "connRet": "3-letter IATA code of the return connection airport, else null",
+ "flightRet2": "second-leg return flight number, digits only, else null",
+ "depTimeRet2": "second-leg return departure time as 24h HH:MM local, else null",
  "flightConf": "airline confirmation code or null",
  "rental": "one of: enterprise, hertz, avis, budget, national, alamo, dollar, thrifty, sixt — or null",
  "rentalConf": "rental confirmation number or null",
@@ -1294,6 +1409,16 @@ function applyExtracted(x, status) {
   if (set('f_depTimeOut', x.depTimeOut)) filled.push('dep time out');
   if (set('f_depDateRet', x.depDateRet)) filled.push('dep date back');
   if (set('f_depTimeRet', x.depTimeRet)) filled.push('dep time back');
+  if (x.connOut) {
+    set('f_connOut', x.connOut); set('f_flightOut2', x.flightOut2); set('f_depTimeOut2', x.depTimeOut2);
+    filled.push('connection out via ' + x.connOut);
+    if (!AIRPORTS[x.connOut]) warns.push('no playbook for ' + x.connOut + ' yet');
+  }
+  if (x.connRet) {
+    set('f_connRet', x.connRet); set('f_flightRet2', x.flightRet2); set('f_depTimeRet2', x.depTimeRet2);
+    filled.push('connection back via ' + x.connRet);
+    if (!AIRPORTS[x.connRet]) warns.push('no playbook for ' + x.connRet + ' yet');
+  }
   if (x.rental && RENTALS[x.rental]) { set('f_rental', x.rental); filled.push(RENTALS[x.rental].name); }
   if (set('f_rentalConf', x.rentalConf)) filled.push('rental conf');
   if (set('f_hotelName', x.hotelName)) filled.push('hotel');

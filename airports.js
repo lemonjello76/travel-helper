@@ -21,6 +21,7 @@ window.AIRPORTS = {
       },
       checkin: {
         WN: "Southwest check-in is Terminal 1, Level 2 (ticketing level). Counters and kiosks are on the esplanade.",
+        AA: "American check-in is Terminal 1, Level 2 (ticketing level).",
         default: "Check-in is on Terminal 1 Level 2 (ticketing level) for most domestic airlines."
       },
       skycap: "Skycap curbside check-in runs at the Terminal 1 departures curb — hand off a heavy bag right there and skip the ticket counter line entirely.",
@@ -30,6 +31,7 @@ window.AIRPORTS = {
       },
       gates: {
         WN: "Southwest departs from the B and C gates (mostly C). Check the app or monitors for your gate.",
+        AA: "American uses the D gates — ride the tram from the T1 esplanade after security. Budget a few extra minutes for it.",
         default: "Check monitors for your gate. A, B and C gates connect via walkways; D gates via tram."
       },
       rentalReturn: "Follow signs to the Rent-A-Car Center on Gilespie Street. Drop the car, then ride the free shuttle to Terminal 1 — about 10 minutes, so pad your timeline."
@@ -121,6 +123,104 @@ window.AIRPORTS = {
     }
   }
 
+  ,
+
+  // Verified 2026-08-26 for the Dayton trip (connection playbook — Lyle only connects here)
+  CLT: {
+    code: "CLT",
+    name: "Charlotte Douglas International",
+    city: "Charlotte",
+    lat: 35.2140, lon: -80.9431,
+    tz: "America/New_York",
+    waitTimesUrl: "https://www.cltairport.com/airport-info/prepare-for-travel/",
+    mapUrl: "https://www.cltairport.com/airport-info/terminal-maps/",
+    departure: {
+      parking: { default: "Single terminal — hourly decks sit right at the terminal; follow signs." },
+      checkin: { default: "One terminal, ticketing on the departures level. American dominates this airport." },
+      skycap: "Curbside check-in runs at the departures curb for American.",
+      security: {
+        precheck: "Five checkpoints across the terminal — PreCheck lanes at the main ones. All concourses connect AIRSIDE, so any checkpoint works.",
+        standard: "Any checkpoint works — every concourse connects inside security."
+      },
+      gates: {
+        AA: "American mainline uses A–D. American Eagle regionals fly from Concourse E — the FAR end, 10–15 minute walk; moving walkways help. No trains needed, it's all walking.",
+        default: "Five concourses (A–E), all connected airside by walkways. E is the far end — budget 15 minutes."
+      },
+      rentalReturn: "Rental returns follow the Rental Car signs on airport approach; shuttle to the terminal."
+    },
+    times: { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 20, rentalReturn: 25 },
+    arrival: {
+      toBaggage: "Everything is one building — follow Baggage Claim signs down from your concourse to the lower level.",
+      baggage: "Baggage claim is on the lower level. Check monitors for your carousel.",
+      toRental: "Follow Rental Car signs from baggage claim — shuttle to the rental facility.",
+      toParking: "Follow parking signs from baggage claim — decks are adjacent to the terminal."
+    }
+  },
+
+  // Verified 2026-08-26 — destination for the Aug 28-30 trip. Small and easy.
+  DAY: {
+    code: "DAY",
+    name: "Dayton International",
+    city: "Dayton",
+    lat: 39.9024, lon: -84.2194,
+    tz: "America/New_York",
+    waitTimesUrl: "https://flydayton.com/",
+    mapUrl: "https://flydayton.com/",
+    departure: {
+      parking: { default: "Small airport — parking garage and lots right across from the single terminal. Minutes to the door." },
+      checkin: { default: "One terminal, two levels: check-in and the central TSA checkpoint are on the UPPER level." },
+      skycap: null,
+      security: {
+        precheck: "Central checkpoint on the upper level — PreCheck when staffed. Small airport, lines are short; early morning has one checkpoint running.",
+        standard: "Central checkpoint, upper level. Small airport — this is a 10-minute operation most days."
+      },
+      gates: {
+        AA: "American flies from Concourse A. Both concourses are steps from the checkpoint.",
+        default: "Two concourses (A and B) right off the central checkpoint. Nothing is far here."
+      },
+      rentalReturn: "Rental return is directly across from the terminal — drop the car and you're a few minutes' walk from check-in."
+    },
+    // small airport, conservative early-morning numbers
+    times: { bagDrop: 12, securityPre: 10, securityStd: 20, toGate: 8, rentalReturn: 15 },
+    arrival: {
+      toBaggage: "Down one level — baggage claim is on the lower level of the single terminal.",
+      baggage: "Baggage claim, lower level. Small airport — bags come out fast.",
+      toRental: "Rental counters are right in the main terminal by baggage claim; the cars are directly across from the terminal. No shuttle, no train — easiest pickup on your list.",
+      toParking: "Parking is directly across from the terminal exit."
+    }
+  },
+
+  // Verified 2026-08-26 (connection playbook — Skylink does the work)
+  DFW: {
+    code: "DFW",
+    name: "Dallas/Fort Worth International",
+    city: "Dallas",
+    lat: 32.8998, lon: -97.0403,
+    tz: "America/Chicago",
+    waitTimesUrl: "https://www.dfwairport.com/",
+    mapUrl: "https://www.dfwairport.com/maps/",
+    departure: {
+      parking: { default: "Five terminals, each with its own garage — know your terminal before you drive in." },
+      checkin: { default: "American owns Terminals A–D. Check your terminal on the app before arriving." },
+      skycap: "Curbside check-in at most AA terminals.",
+      security: {
+        precheck: "Every terminal has checkpoints with PreCheck. Once inside security, Skylink connects ALL terminals — so clear security at whichever checkpoint is close.",
+        standard: "Clear security at your terminal; Skylink connects everything airside afterward."
+      },
+      gates: {
+        AA: "AA mainline spreads across Terminals A–D; Eagle regionals mostly B and E. The Skylink train connects every terminal INSIDE security — every 2 minutes, 9 minutes max ride. Check the app for your gate, ride Skylink, done.",
+        default: "Five terminals connected airside by the Skylink train (every 2 min). Check monitors for your gate and terminal."
+      },
+      rentalReturn: "All rentals return at the consolidated Rental Car Center — follow the signs on approach, then shuttle to your terminal (~10-15 min, pad your timeline)."
+    },
+    times: { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 25, rentalReturn: 30 },
+    arrival: {
+      toBaggage: "Follow Baggage Claim signs down to the lower level of your arrival terminal.",
+      baggage: "Baggage claim is in your arrival terminal, lower level — check monitors for the carousel.",
+      toRental: "Rental Car Center shuttle picks up at the lower level curb — about 10 minutes out.",
+      toParking: "Your terminal's garage is directly across from baggage claim."
+    }
+  }
 };
 
 // ============================================================

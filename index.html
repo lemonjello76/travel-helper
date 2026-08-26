@@ -226,8 +226,8 @@
         <div><label>Departure time (return)</label><input id="f_depTimeRet" type="time"></div>
       </div>
       <div class="row2">
+        <div><label>Checking bags?</label><select id="f_bags"><option value="yes">Yes</option><option value="no">No — carry-on only</option></select></div>
         <div><label>Overweight bag (50+ lb)?</label><select id="f_heavyBag"><option value="no">No</option><option value="yes">Yes</option></select></div>
-        <div></div>
       </div>
       <label style="margin-top:14px;color:var(--accent2)">— Connection (leave blank if nonstop) —</label>
       <div class="row2">
@@ -442,15 +442,17 @@ function buildPhases() {
   }
   const heavy = trip.heavyBag === 'yes';
   const skycap = dep.departure.skycap || '';
-  phases.push({
-    id: 'checkin', title: 'Check In / Bag Drop',
-    lines: [pick(dep.departure.checkin, trip.airline),
-      heavy && skycap ? '💪 Heavy bag: ' + skycap : (skycap || ''),
-      heavy ? 'Overweight fee applies on top of the bag fee regardless of fare class — 51–70 lb runs about $100 on Southwest.' : '',
-      flight ? al.name + ' flight ' + flight + '.' : ''],
-    voice: pick(dep.departure.checkin, trip.airline) + (heavy && skycap ? ' Heavy bag tip: ' + skycap : ''),
-    actions: alBtn
-  });
+  if (trip.bags !== 'no') {
+    phases.push({
+      id: 'checkin', title: 'Check In / Bag Drop',
+      lines: [pick(dep.departure.checkin, trip.airline),
+        heavy && skycap ? '💪 Heavy bag: ' + skycap : (skycap || ''),
+        heavy ? 'Overweight fee applies on top of the bag fee regardless of fare class — 51–70 lb runs about $100 on Southwest.' : '',
+        flight ? al.name + ' flight ' + flight + '.' : ''],
+      voice: pick(dep.departure.checkin, trip.airline) + (heavy && skycap ? ' Heavy bag tip: ' + skycap : ''),
+      actions: alBtn
+    });
+  }
   phases.push({
     id: 'security', title: 'Security' + (trip.precheck === 'yes' ? ' — PreCheck' : ''),
     lines: [trip.precheck === 'yes' ? dep.departure.security.precheck : dep.departure.security.standard],
@@ -517,12 +519,14 @@ function buildPhases() {
       { label: '📰 National News', url: 'https://news.google.com/' }
     ]
   });
-  phases.push({
-    id: 'baggage', title: 'Baggage Claim',
-    lines: [arr.arrival.baggage],
-    voice: arr.arrival.baggage,
-    actions: []
-  });
+  if (trip.bags !== 'no') {
+    phases.push({
+      id: 'baggage', title: 'Baggage Claim',
+      lines: [arr.arrival.baggage],
+      voice: arr.arrival.baggage,
+      actions: []
+    });
+  }
   if (out) {
     phases.push({
       id: 'rental', title: 'Rental Car',
@@ -684,7 +688,7 @@ function buildSchedule() {
   const dep = AIRPORTS[out ? trip.from : trip.to];
   if (!depTime || !dep) return;
   const t = dep.times || {};
-  const bag = t.bagDrop || 15;
+  const bag = trip.bags === 'no' ? 0 : (t.bagDrop || 15); // carry-on = no counter stop
   const sec = trip.precheck === 'yes' ? (t.securityPre || 15) : (t.securityStd || 30);
   const walk = t.toGate || 20;
   const rentalDrop = (!out && trip.rental) ? (t.rentalReturn || 20) : 0;
@@ -1213,7 +1217,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1225,7 +1229,7 @@ function saveTrip() {
     from: val('f_from').toUpperCase(), to: val('f_to').toUpperCase(), airline: val('f_airline'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
-    depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), heavyBag: val('f_heavyBag'),
+    depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'),
     connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),

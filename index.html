@@ -229,6 +229,13 @@
         <div><label>Checking bags?</label><select id="f_bags"><option value="yes">Yes</option><option value="no">No — carry-on only</option></select></div>
         <div><label>Overweight bag (50+ lb)?</label><select id="f_heavyBag"><option value="no">No</option><option value="yes">Yes</option></select></div>
       </div>
+      <label style="margin-top:14px;color:var(--accent2)">— Plan B (backup ladder if a connection breaks) —</label>
+      <label>Outbound Plan B (one option per line)</label>
+      <textarea id="f_planBOut" rows="3" placeholder="e.g. Last CLT→DAY flight ~10:35 PM&#10;CLT→CVG last ~10:55 PM, then 1 hr drive&#10;Rental car: 7 hrs up I-77"></textarea>
+      <label>Return Plan B</label>
+      <textarea id="f_planBRet" rows="3" placeholder="options if the return connection breaks"></textarea>
+      <button class="hbtn" style="margin-top:8px;width:100%" onclick="aiPlanB()">🤖 BUILD PLAN B LADDERS (AI)</button>
+      <div class="note" id="pbAiStatus"></div>
       <label style="margin-top:14px;color:var(--accent2)">— Connection (leave blank if nonstop) —</label>
       <div class="row2">
         <div><label>Outbound connects at</label><input id="f_connOut" list="apCodes" maxlength="3" style="text-transform:uppercase" placeholder="e.g. DEN"></div>
@@ -594,6 +601,76 @@ function tripDT2(dir) {
   return d2.getTime();
 }
 function lastDepDT(dir) { return tripDT2(dir) || tripDT(dir); }
+
+// =========================================================
+// PLAN B — connection triage. GPS wheels-down at the connection
+// vs leg-2 departure time = the verdict, rendered during taxi.
+// =========================================================
+let planBAnnounced = false;
+function connStatus() {
+  if (!schedule.flight2 || !phases.length) return null;
+  const pid = phases[state.phase].id;
+  if (pid !== 'flight' && pid !== 'conn' && pid !== 'board2') return null;
+  const mins = Math.round((schedule.flight2.at - Date.now()) / 60000);
+  if (mins < 25) return { lvl: 'red', mins };
+  if (mins < 45) return { lvl: 'yellow', mins };
+  return { lvl: 'ok', mins };
+}
+function planBCheck(fromLanding) {
+  const s = connStatus();
+  if (!s || planBAnnounced) return;
+  const pid = phases[state.phase].id;
+  if (pid === 'flight' && !fromLanding) return; // judge on the ground, not mid-air
+  const out = state.dir === 'out';
+  const arrCity = (AIRPORTS[out ? trip.to : trip.from] || {}).city || (out ? trip.to : trip.from);
+  if (s.lvl === 'red') {
+    planBAnnounced = true;
+    const msg = s.mins > 0
+      ? 'Heads up — only ' + s.mins + ' minutes to your ' + arrCity + ' departure. That connection is in trouble. Plan B is on your screen: your options, the rebooking links, and the number to call. You\'ve got a ladder — no stress.'
+      : 'Your ' + arrCity + ' flight has departed. Plan B is on your screen — options, links, and the number to call. Work the ladder.';
+    banner('🚨 PLAN B MODE — see options below.');
+    speak(msg);
+    notifyText('🚨 Plan B mode', 'Connection in trouble — options are on screen.');
+    renderTrip();
+  } else if (s.lvl === 'yellow') {
+    planBAnnounced = true;
+    speak('You\'ve got ' + s.mins + ' minutes to your next departure — no pit stops, straight to the gate. If it slips, Plan B is loaded below.');
+    banner('⚠ ' + s.mins + ' min to departure — straight to the gate.');
+    renderTrip();
+  }
+}
+setInterval(() => { if (trip && phases.length && phases[state.phase].id === 'conn') planBCheck(false); }, 60000);
+
+function planBHtml() {
+  const s = connStatus();
+  if (!s) return '';
+  const out = state.dir === 'out';
+  const arrC = out ? trip.to : trip.from;
+  const connC = (out ? trip.connOut : trip.connRet) || '';
+  const arrAp = AIRPORTS[arrC] || {}, connAp = AIRPORTS[connC] || {};
+  const alx = AIRLINES[trip.airline] || {};
+  const d = out ? trip.depDateOut : trip.depDateRet;
+  const planText = (out ? trip.planBOut : trip.planBRet) || '';
+  let head, cls;
+  if (s.lvl === 'red') { cls = 'late'; head = s.mins > 0 ? '🚨 ' + s.mins + ' min to departure — likely miss. Work the ladder:' : '🚨 Leg 2 has departed. Work the ladder:'; }
+  else if (s.lvl === 'yellow') { cls = 'tight'; head = '⚠ ' + s.mins + ' min to departure — straight to the gate. Backup below if it slips.'; }
+  else { cls = 'ok'; head = '✓ ' + s.mins + ' min to departure — comfortable. Plan B rides along just in case.'; }
+  let html = '<div class="phasecard" style="border-left-color:var(--' + (cls === 'late' ? 'bad' : cls === 'tight' ? 'warn' : 'ok') + ')">' +
+    '<h2 style="font-size:19px">PLAN B — ' + connC + ' → ' + arrC + '</h2>' +
+    '<p><span class="buf ' + cls + '">' + head + '</span></p>';
+  if (planText) planText.split('\n').filter(Boolean).forEach(l => { html += '<p style="font-size:15px">• ' + l + '</p>'; });
+  else html += '<p class="sub">Ladder: 1) later flight tonight ' + connC + '→' + arrC + ' · 2) flight to a nearby airport + short drive · 3) rental car + drive. Never accept next-day if you have a morning deadline.</p>';
+  html += '<div class="actions">';
+  if (alx.appUrl) html += '<a class="abtn primary" href="' + alx.appUrl + '" target="_blank" rel="noopener">✈️ ' + alx.name + ' Rebook</a>';
+  if (alx.phone) html += '<a class="abtn" href="tel:' + alx.phone.replace(/[^0-9+]/g, '') + '">📞 Call ' + alx.name + '</a>';
+  html += '<a class="abtn" href="https://www.google.com/travel/flights?q=' + encodeURIComponent('flights from ' + connC + ' to ' + arrC + (d ? ' on ' + d : '')) + '" target="_blank" rel="noopener">🔎 All flights tonight</a>';
+  const driveDest = out ? (trip.hotelAddr || arrAp.city || arrC) : (trip.homeAddr || arrAp.city || arrC);
+  html += '<a class="abtn" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent((connAp.name || connC) + ' airport') + '&destination=' + encodeURIComponent(driveDest) + '" target="_blank" rel="noopener">🚗 Drive it instead</a>';
+  const rc = RENTALS[trip.rental];
+  if (rc) html += '<a class="abtn" href="' + rc.url + '" target="_blank" rel="noopener">🚙 ' + rc.name + ' at ' + connC + '</a>';
+  html += '</div></div>';
+  return html;
+}
 
 // =========================================================
 // DELAY RISK — NWS hourly forecast checked against the exact
@@ -974,7 +1051,7 @@ function toggleAuto() {
 }
 function toggleDirection() {
   state.dir = state.dir === 'out' ? 'ret' : 'out';
-  state.phase = 0; lastSpokenPhase = -1;
+  state.phase = 0; lastSpokenPhase = -1; planBAnnounced = false;
   geoFired = { depart: false, arrive: false };
   saveState(); buildPhases(); renderHeader(); renderTrip(); renderHub();
 }
@@ -1028,6 +1105,7 @@ function renderTrip() {
     html += '<div class="actions"><button class="abtn" onclick="clearTrip()">🧹 CLEAR TRIP</button></div>';
   }
   html += '</div>';
+  if (p.id === 'flight' || p.id === 'conn' || p.id === 'board2') html += planBHtml();
   html += '<div class="navrow">' +
     '<button onclick="setPhase(state.phase-1,false)">◂ BACK</button>' +
     '<button onclick="speak(phases[state.phase].voice)">🔊 SAY IT</button>' +
@@ -1208,6 +1286,7 @@ function onPos(pos) {
     geoFired.conn = true;
     banner('🛬 On the ground at ' + connCode + ' — connection mode.');
     setPhase(state.phase + 1, true);
+    planBCheck(true); // verdict during taxi: green walk, yellow hustle, red Plan B
     return;
   }
   const finalFlight = connCode ? 'flight2' : 'flight';
@@ -1326,7 +1405,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1341,13 +1420,14 @@ function saveTrip() {
     depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'),
     connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
+    planBOut: document.getElementById('f_planBOut').value.trim(), planBRet: document.getElementById('f_planBRet').value.trim(),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')
   };
   localStorage.setItem('th_trip', JSON.stringify(trip));
   localStorage.setItem('th_tripSavedAt', String(Date.now()));
-  state.phase = 0; state.dir = 'out'; lastSpokenPhase = -1;
+  state.phase = 0; state.dir = 'out'; lastSpokenPhase = -1; planBAnnounced = false;
   geoFired = { depart: false, arrive: false };
   saveState(); buildPhases(); renderHeader(); renderTrip(); renderHub();
   pushCloudTrip();
@@ -1382,6 +1462,37 @@ async function buildMissingPlaybooks() {
     }
   }
 }
+// AI drafts the Plan B ladder for each direction's connection
+async function aiPlanB() {
+  const status = document.getElementById('pbAiStatus');
+  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
+  if (!key) { status.textContent = 'Need your Anthropic API key below first.'; return; }
+  const jobs = [];
+  if (val('f_connOut')) jobs.push({ field: 'f_planBOut', conn: val('f_connOut').toUpperCase(), dest: val('f_to').toUpperCase(), date: val('f_depDateOut') });
+  if (val('f_connRet')) jobs.push({ field: 'f_planBRet', conn: val('f_connRet').toUpperCase(), dest: val('f_from').toUpperCase(), date: val('f_depDateRet') });
+  if (!jobs.length) { status.textContent = 'No connections set — Plan B ladders are for connecting itineraries.'; return; }
+  for (const j of jobs) {
+    status.textContent = '⏳ Building ' + j.conn + ' → ' + j.dest + ' ladder…';
+    try {
+      const prompt = 'If I miss my connection at ' + j.conn + ' airport headed to ' + j.dest + (j.date ? ' on ' + j.date : '') +
+        ', give me a backup ladder as PLAIN TEXT, max 5 lines, one option per line, no numbering, most-preferred first. Include: typical later same-day nonstop times on that route and which airline; nearby alternate airports to ' + j.dest +
+        ' with nonstops from ' + j.conn + ' and drive minutes to ' + j.dest + '; and the rental-car drive option with rough hours/route. Be concrete and concise — these lines get read on a phone in a crisis. End with one line about the earliest next-morning flight time so I know if waiting overnight works.';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+      });
+      if (!res.ok) throw new Error('API ' + res.status);
+      const data = await res.json();
+      document.getElementById(j.field).value = ((data.content && data.content[0] && data.content[0].text) || '').trim();
+      status.textContent = '✅ ' + j.conn + ' ladder built — read it over, edit if you know better, then SAVE TRIP.';
+    } catch (e) {
+      status.textContent = '❌ ' + j.conn + ' ladder failed (' + e.message + ').';
+      return;
+    }
+  }
+}
+
 async function genAirport(code, key) {
   const airlineName = (AIRLINES[val('f_airline')] || {}).name || '';
   const prompt =

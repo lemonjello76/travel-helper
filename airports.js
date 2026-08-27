@@ -229,14 +229,14 @@ window.AIRPORTS = {
 // ============================================================
 // icao = the 3-letter code FlightAware uses (SWA1234 = Southwest 1234)
 window.AIRLINES = {
-  WN: { name: "Southwest",  icao: "SWA", appUrl: "https://mobile.southwest.com" },
-  AA: { name: "American",   icao: "AAL", appUrl: "https://www.aa.com" },
-  DL: { name: "Delta",      icao: "DAL", appUrl: "https://www.delta.com" },
-  UA: { name: "United",     icao: "UAL", appUrl: "https://www.united.com" },
-  AS: { name: "Alaska",     icao: "ASA", appUrl: "https://www.alaskaair.com" },
-  B6: { name: "JetBlue",    icao: "JBU", appUrl: "https://www.jetblue.com" },
-  NK: { name: "Spirit",     icao: "NKS", appUrl: "https://www.spirit.com" },
-  F9: { name: "Frontier",   icao: "FFT", appUrl: "https://www.flyfrontier.com" }
+  WN: { name: "Southwest",  icao: "SWA", appUrl: "https://mobile.southwest.com", phone: "1-800-435-9792" },
+  AA: { name: "American",   icao: "AAL", appUrl: "https://www.aa.com",           phone: "1-800-433-7300" },
+  DL: { name: "Delta",      icao: "DAL", appUrl: "https://www.delta.com",        phone: "1-800-221-1212" },
+  UA: { name: "United",     icao: "UAL", appUrl: "https://www.united.com",       phone: "1-800-864-8331" },
+  AS: { name: "Alaska",     icao: "ASA", appUrl: "https://www.alaskaair.com",    phone: "1-800-252-7522" },
+  B6: { name: "JetBlue",    icao: "JBU", appUrl: "https://www.jetblue.com",      phone: "1-800-538-2583" },
+  NK: { name: "Spirit",     icao: "NKS", appUrl: "https://www.spirit.com",       phone: "1-855-728-3555" },
+  F9: { name: "Frontier",   icao: "FFT", appUrl: "https://www.flyfrontier.com",  phone: "1-801-401-9000" }
 };
 
 // ============================================================

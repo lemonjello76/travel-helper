@@ -594,6 +594,99 @@ function tripDT2(dir) {
   return d2.getTime();
 }
 function lastDepDT(dir) { return tripDT2(dir) || tripDT(dir); }
+
+// =========================================================
+// DELAY RISK — NWS hourly forecast checked against the exact
+// windows you'll be at each airport. Free, no key.
+// =========================================================
+// Epoch for a wall-clock time IN the airport's timezone (schedule uses
+// phone-local on purpose; risk windows are computed days ahead, so they
+// must be airport-local).
+function zonedEpoch(dateStr, timeStr, tz) {
+  const [Y, Mo, D] = dateStr.split('-').map(Number);
+  const [h, m] = timeStr.split(':').map(Number);
+  const utcGuess = Date.UTC(Y, Mo - 1, D, h, m);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+  const p = Object.fromEntries(fmt.formatToParts(new Date(utcGuess)).map(x => [x.type, x.value]));
+  const rendered = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  return utcGuess + (utcGuess - rendered);
+}
+function legWindows() {
+  if (!trip) return [];
+  const out = state.dir === 'out';
+  const depC = out ? trip.from : trip.to, arrC = out ? trip.to : trip.from;
+  const conn = (out ? trip.connOut : trip.connRet) || '';
+  const d = out ? trip.depDateOut : trip.depDateRet;
+  const t1 = out ? trip.depTimeOut : trip.depTimeRet;
+  const t2 = out ? trip.depTimeOut2 : trip.depTimeRet2;
+  if (!d || !t1) return [];
+  const H = 3600000, w = [];
+  const ap = c => AIRPORTS[c];
+  if (ap(depC) && ap(depC).tz) {
+    const e1 = zonedEpoch(d, t1, ap(depC).tz);
+    w.push({ code: depC, label: 'Departure', start: e1 - H, end: e1 + H });
+  }
+  let landBase = null;
+  if (conn && t2 && ap(conn) && ap(conn).tz) {
+    const e2 = zonedEpoch(d, t2, ap(conn).tz);
+    w.push({ code: conn, label: 'Connection', start: e2 - 1.5 * H, end: e2 + H });
+    landBase = e2;
+  } else if (ap(depC) && ap(depC).tz) {
+    landBase = zonedEpoch(d, t1, ap(depC).tz);
+  }
+  if (landBase && ap(arrC) && ap(arrC).tz) {
+    w.push({ code: arrC, label: 'Arrival (approx)', start: landBase + H, end: landBase + 3.5 * H });
+  }
+  return w;
+}
+async function loadRisk() {
+  const wrap = document.getElementById('riskWrap');
+  if (!wrap) return;
+  const wins = legWindows().filter(w => AIRPORTS[w.code] && AIRPORTS[w.code].lat && w.end > Date.now());
+  if (!wins.length) {
+    wrap.innerHTML = '<div class="wxcard"><p class="dim">Delay risk needs flight dates/times (and playbooks with coordinates).</p></div>';
+    return;
+  }
+  let html = '';
+  for (const w of wins) html += await riskRow(w);
+  wrap.innerHTML = html || '<div class="wxcard"><p class="dim">No risk data.</p></div>';
+}
+async function riskRow(w) {
+  const ap = AIRPORTS[w.code];
+  const clock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: ap.tz });
+  const head = '<b>' + w.code + '</b> — ' + w.label + ' window ' + clock(w.start) + '–' + clock(w.end) + ' local';
+  try {
+    if (w.start - Date.now() > 6.5 * 86400000) {
+      return '<div class="wxcard"><p>' + head + '</p><p class="dim">Too far out for hourly forecast — check back inside a week.</p></div>';
+    }
+    const pt = await (await fetch('https://api.weather.gov/points/' + ap.lat + ',' + ap.lon)).json();
+    const hf = await (await fetch(pt.properties.forecastHourly)).json();
+    const periods = hf.properties.periods.filter(p => {
+      const s = new Date(p.startTime).getTime();
+      return s < w.end && s + 3600000 > w.start;
+    });
+    if (!periods.length) {
+      return '<div class="wxcard"><p>' + head + '</p><p class="dim">Hourly data not published for that window yet.</p></div>';
+    }
+    let maxP = 0, worst = periods[0], thunder = false;
+    periods.forEach(p => {
+      const v = (p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value) || 0;
+      if (/thunder|t-?storm/i.test(p.shortForecast)) thunder = true;
+      if (v >= maxP) { maxP = v; worst = p; }
+    });
+    const lvl = (thunder && maxP >= 40) ? ['HIGH', 'late'] : ((thunder || maxP >= 50) ? ['WATCH', 'tight'] : ['LOW', 'ok']);
+    return '<div class="wxcard"><p>' + head + '</p>' +
+      '<p><span class="buf ' + lvl[1] + '">' + (lvl[0] === 'LOW' ? '✓' : '⛈') + ' ' + lvl[0] + '</span> — ' +
+      worst.shortForecast + ', ' + maxP + '% precip' + (thunder ? ', thunderstorms in the window' : '') + '</p>' +
+      (lvl[0] !== 'LOW' ? '<p class="dim">Storms at a hub ripple — watch the airline app for rolling delays and check the FAA board.</p>' : '') +
+      '</div>';
+  } catch (e) {
+    return '<div class="wxcard"><p>' + head + '</p><p class="dim">Risk check unavailable (offline?).</p></div>';
+  }
+}
 function reconcileTrip(announce) {
   if (!trip || !phases.length) return;
   const H12 = 12 * 3600000, H24 = 24 * 3600000, now = Date.now();
@@ -890,7 +983,7 @@ function showView(v) {
   document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
   document.getElementById('view-' + v).classList.add('active');
   document.getElementById('tab-' + v).classList.add('active');
-  if (v === 'hub') loadWeather();
+  if (v === 'hub') { loadWeather(); loadRisk(); }
 }
 
 // =========================================================
@@ -978,6 +1071,22 @@ function renderHub() {
   if (gcalUrl('out')) html += hub('📅', 'Cal: Flight Out', gcalUrl('out'));
   if (gcalUrl('ret')) html += hub('📅', 'Cal: Flight Back', gcalUrl('ret'));
   html += '</div>';
+
+  // Flight Intel — per-leg track records + FAA board + delay risk
+  const legs = [];
+  const f1 = out ? trip.flightOut : trip.flightRet;
+  const f2 = out ? trip.flightOut2 : trip.flightRet2;
+  const connH = (out ? trip.connOut : trip.connRet) || '';
+  if (f1) legs.push({ num: f1, route: depCode + '→' + (connH || arrCode) });
+  if (connH && f2) legs.push({ num: f2, route: connH + '→' + arrCode });
+  html += '<div class="sectionhead">Flight Intel</div><div class="hubgrid">';
+  legs.forEach(l => {
+    html += hub('📊', trip.airline + ' ' + l.num + ' record',
+      'https://www.flightaware.com/live/flight/' + trip.airline + l.num);
+  });
+  html += hub('🛫', 'FAA Delay Board', 'https://nasstatus.faa.gov/');
+  html += '</div>';
+  html += '<div id="riskWrap"><div class="wxcard"><p class="dim">Checking delay risk…</p></div></div>';
 
   // Bag Math — is the premium seat cheaper once bag fees are counted?
   const wn = trip.airline === 'WN';

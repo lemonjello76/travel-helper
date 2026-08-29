@@ -610,7 +610,8 @@ let planBAnnounced = false;
 function connStatus() {
   if (!schedule.flight2 || !phases.length) return null;
   const pid = phases[state.phase].id;
-  if (pid !== 'flight' && pid !== 'conn' && pid !== 'board2') return null;
+  // gate/board included so Plan B is reachable BEFORE leg 1 even departs
+  if (!['gate', 'board', 'flight', 'conn', 'board2'].includes(pid)) return null;
   const mins = Math.round((schedule.flight2.at - Date.now()) / 60000);
   if (mins < 25) return { lvl: 'red', mins };
   if (mins < 45) return { lvl: 'yellow', mins };
@@ -651,10 +652,11 @@ function planBHtml() {
   const alx = AIRLINES[trip.airline] || {};
   const d = out ? trip.depDateOut : trip.depDateRet;
   const planText = (out ? trip.planBOut : trip.planBRet) || '';
+  const fm = m => m >= 90 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + ' min';
   let head, cls;
-  if (s.lvl === 'red') { cls = 'late'; head = s.mins > 0 ? '🚨 ' + s.mins + ' min to departure — likely miss. Work the ladder:' : '🚨 Leg 2 has departed. Work the ladder:'; }
-  else if (s.lvl === 'yellow') { cls = 'tight'; head = '⚠ ' + s.mins + ' min to departure — straight to the gate. Backup below if it slips.'; }
-  else { cls = 'ok'; head = '✓ ' + s.mins + ' min to departure — comfortable. Plan B rides along just in case.'; }
+  if (s.lvl === 'red') { cls = 'late'; head = s.mins > 0 ? '🚨 ' + fm(s.mins) + ' to departure — likely miss. Work the ladder:' : '🚨 Leg 2 has departed. Work the ladder:'; }
+  else if (s.lvl === 'yellow') { cls = 'tight'; head = '⚠ ' + fm(s.mins) + ' to departure — straight to the gate. Backup below if it slips.'; }
+  else { cls = 'ok'; head = '✓ ' + fm(s.mins) + ' to leg 2 departure — comfortable. Plan B rides along just in case.'; }
   let html = '<div class="phasecard" style="border-left-color:var(--' + (cls === 'late' ? 'bad' : cls === 'tight' ? 'warn' : 'ok') + ')">' +
     '<h2 style="font-size:19px">PLAN B — ' + connC + ' → ' + arrC + '</h2>' +
     '<p><span class="buf ' + cls + '">' + head + '</span></p>';
@@ -668,8 +670,70 @@ function planBHtml() {
   html += '<a class="abtn" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent((connAp.name || connC) + ' airport') + '&destination=' + encodeURIComponent(driveDest) + '" target="_blank" rel="noopener">🚗 Drive it instead</a>';
   const rc = RENTALS[trip.rental];
   if (rc) html += '<a class="abtn" href="' + rc.url + '" target="_blank" rel="noopener">🚙 ' + rc.name + ' at ' + connC + '</a>';
-  html += '</div></div>';
+  html += '</div>';
+  // Live refresh — re-searches the ladder with real web results (needs wifi
+  // with actual internet, not the free messaging-only tier).
+  html += '<div class="actions"><button class="abtn" onclick="aiRefreshPlanB()">🔴 LIVE REFRESH — search real flights now</button></div>' +
+    '<p class="sub" id="pbLiveStatus" style="margin-top:8px"></p>';
+  html += '</div>';
   return html;
+}
+
+// One tap on the Plan B card: Claude searches the web LIVE for tonight's
+// remaining flights and rewrites the ladder with real times and numbers.
+let pbLiveBusy = false;
+async function aiRefreshPlanB() {
+  const say = m => { const el = document.getElementById('pbLiveStatus'); if (el) el.textContent = m; };
+  if (pbLiveBusy) { say('⏳ Already searching — hang tight.'); return; }
+  const key = localStorage.getItem('th_apikey') || '';
+  if (!key) { say('Needs your Anthropic API key first — Setup tab, under the paste box. One time.'); return; }
+  const out = state.dir === 'out';
+  const connC = (out ? trip.connOut : trip.connRet) || '';
+  const destC = out ? trip.to : trip.from;
+  if (!connC) { say('No connection on this leg.'); return; }
+  const s = connStatus();
+  const connAp = AIRPORTS[connC] || {};
+  const nowStr = new Date().toLocaleString('en-US', connAp.tz
+    ? { timeZone: connAp.tz, weekday: 'short', hour: 'numeric', minute: '2-digit' }
+    : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const d = out ? trip.depDateOut : trip.depDateRet;
+  const al = (AIRLINES[trip.airline] || {}).name || trip.airline;
+  pbLiveBusy = true;
+  say('⏳ Searching live flights ' + connC + ' → ' + destC + '…');
+  const prompt = 'LIVE rebooking help — search the web for current information. It is now ' + nowStr +
+    ' local time at ' + connC + ' airport' + (d ? ' on ' + d : '') + '. I am connecting at ' + connC +
+    ' to ' + destC + ' on ' + al +
+    (s ? '. My connecting flight leaves in about ' + s.mins + ' minutes.' : '.') +
+    ' Find: (1) the remaining flights TODAY from ' + connC + ' to ' + destC + ' on any airline, with real departure times and flight numbers; ' +
+    '(2) flights today from ' + connC + ' to airports within about a 90 minute drive of ' + destC + '; ' +
+    '(3) any current ground delays at ' + connC + '. ' +
+    'Reply as PLAIN TEXT only, max 6 short lines, one option per line, most-preferred first — these get read on a phone in a crisis. ' +
+    'Last line: the earliest tomorrow-morning flight so I know if waiting overnight works. No markdown, no preamble.';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5', max_tokens: 1200,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) throw new Error('API ' + res.status + (res.status === 401 ? ' — check the API key' : ''));
+    const data = await res.json();
+    const txt = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    if (!txt) throw new Error('empty reply');
+    if (out) trip.planBOut = txt; else trip.planBRet = txt;
+    localStorage.setItem('th_trip', JSON.stringify(trip));
+    localStorage.setItem('th_tripSavedAt', String(Date.now()));
+    pushCloudTrip();
+    renderTrip(); // redraws the card with the fresh ladder
+    speak('Plan B refreshed with live flight info. It\'s on your screen.');
+  } catch (e) {
+    say('❌ Live search failed (' + e.message + '). No internet on this wifi, most likely — the saved ladder above still stands.');
+  } finally {
+    pbLiveBusy = false;
+  }
 }
 
 // =========================================================
@@ -1105,7 +1169,7 @@ function renderTrip() {
     html += '<div class="actions"><button class="abtn" onclick="clearTrip()">🧹 CLEAR TRIP</button></div>';
   }
   html += '</div>';
-  if (p.id === 'flight' || p.id === 'conn' || p.id === 'board2') html += planBHtml();
+  if (['gate', 'board', 'flight', 'conn', 'board2'].includes(p.id)) html += planBHtml();
   html += '<div class="navrow">' +
     '<button onclick="setPhase(state.phase-1,false)">◂ BACK</button>' +
     '<button onclick="speak(phases[state.phase].voice)">🔊 SAY IT</button>' +

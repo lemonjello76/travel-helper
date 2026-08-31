@@ -222,6 +222,14 @@
         </div>
       </div>
       <div class="row2">
+        <div><label>Seat out (leg 1 / leg 2)</label>
+          <div class="row2" style="gap:6px"><input id="f_seatOut" placeholder="16A"><input id="f_seatOut2" placeholder="17A"></div>
+        </div>
+        <div><label>Seat back (leg 1 / leg 2)</label>
+          <div class="row2" style="gap:6px"><input id="f_seatRet" placeholder="18A"><input id="f_seatRet2" placeholder="21F"></div>
+        </div>
+      </div>
+      <div class="row2">
         <div><label>Flight # return</label><input id="f_flightRet" placeholder="e.g. 5678"></div>
         <div><label>TSA PreCheck?</label><select id="f_precheck"><option value="yes">Yes</option><option value="no">No</option></select></div>
       </div>
@@ -486,7 +494,7 @@ function buildPhases() {
   });
   phases.push({
     id: 'board', title: 'Boarding',
-    lines: ['Pull up your boarding pass.', flight ? al.name + ' ' + flight + ' to ' + arr.city + '.' : ''],
+    lines: ['Pull up your boarding pass.', flight ? al.name + ' ' + flight + ' to ' + arr.city + '.' : '', wifiWarn(flight)],
     voice: 'Time to board. Pull up your boarding pass in the ' + al.name + ' app.',
     actions: alBtn.concat(fsBtn)
   });
@@ -511,7 +519,7 @@ function buildPhases() {
     });
     phases.push({
       id: 'board2', title: 'Boarding Flight 2',
-      lines: ['Pull up your boarding pass.', flight2 ? al.name + ' ' + flight2 + ' to ' + arr.city + '.' : ''],
+      lines: ['Pull up your boarding pass.', flight2 ? al.name + ' ' + flight2 + ' to ' + arr.city + '.' : '', wifiWarn(flight2)],
       voice: 'Time to board your connection to ' + arr.city + '.',
       actions: alBtn.concat(fsBtn)
     });
@@ -619,6 +627,7 @@ function lastDepDT(dir) { return tripDT2(dir) || tripDT(dir); }
 // vs leg-2 departure time = the verdict, rendered during taxi.
 // =========================================================
 let planBAnnounced = false;
+let connEnteredAt = 0;
 // Airline "manage trip" deep link with conf/name filled where the airline allows
 function manageTripUrl() {
   const alx = AIRLINES[trip && trip.airline] || {};
@@ -630,6 +639,32 @@ function manageTripUrl() {
 }
 // Route Intel — chronic, structural airport risks briefed up front
 function paceFactor() { return trip && trip.pace === 'slow' ? 1.5 : 1; }
+
+// Seat row -> realistic minutes to get OFF a full plane after the door opens.
+// Row 2 first class ~3 min; row 25 on a full narrowbody ~10.
+function deplaneMins(seat) {
+  const m = /^(\d{1,2})/.exec((seat || '').trim());
+  if (!m) return 6; // unknown seat: assume mid-cabin
+  return Math.min(15, Math.max(2, 2 + Math.round(+m[1] / 3)));
+}
+// Seat of the leg that LANDS at the connection (leg 1 of current direction)
+function connSeat() {
+  return (state.dir === 'out' ? trip.seatOut : trip.seatRet) || '';
+}
+// Regional-jet heuristic by flight number — regionals often have no wifi.
+// AeroAPI upgrade will replace this with actual aircraft type.
+function likelyRegional(airline, num) {
+  const n = parseInt(num, 10);
+  if (!n) return false;
+  const R = { AA: [[3000, 6099]], DL: [[3400, 6299]], UA: [[3300, 6499]], AS: [[2000, 2999], [3300, 3499]] };
+  const ranges = R[airline];
+  return !!ranges && ranges.some(([a, b]) => n >= a && n <= b);
+}
+function wifiWarn(flightNum) {
+  return likelyRegional(trip.airline, flightNum)
+    ? '📶 Likely a regional jet — wifi is often absent or spotty on these. Screenshot gate info and your Plan B before boarding; expect cell service or nothing.'
+    : '';
+}
 function briefingLines() {
   if (!trip) return [];
   const out = state.dir === 'out';
@@ -675,9 +710,16 @@ function connStatus() {
   if (!['gate', 'board', 'flight', 'conn', 'board2'].includes(pid)) return null;
   const mins = Math.round((schedule.flight2.at - Date.now()) / 60000);
   const pad = paceFactor() > 1 ? 15 : 0; // slower pace = earlier warnings
-  if (mins < 25 + pad) return { lvl: 'red', mins };
-  if (mins < 45 + pad) return { lvl: 'yellow', mins };
-  return { lvl: 'ok', mins };
+  // Seat matters: row 25 pays ~10 min to deplane before the clock really starts.
+  // Counted while still on the plane (flight phase / just-landed conn).
+  let dm = 0;
+  const seat = connSeat();
+  if (pid === 'flight') dm = deplaneMins(seat);
+  else if (pid === 'conn' && connEnteredAt) dm = Math.max(0, deplaneMins(seat) - Math.round((Date.now() - connEnteredAt) / 60000));
+  const eff = mins - dm;
+  if (eff < 25 + pad) return { lvl: 'red', mins, eff, dm, seat };
+  if (eff < 45 + pad) return { lvl: 'yellow', mins, eff, dm, seat };
+  return { lvl: 'ok', mins, eff, dm, seat };
 }
 function planBCheck(fromLanding) {
   const s = connStatus();
@@ -688,8 +730,9 @@ function planBCheck(fromLanding) {
   const arrCity = (AIRPORTS[out ? trip.to : trip.from] || {}).city || (out ? trip.to : trip.from);
   if (s.lvl === 'red') {
     planBAnnounced = true;
+    const seatBit = s.dm > 4 && s.seat ? ' From seat ' + s.seat + ', figure ' + s.dm + ' minutes just to get off.' : '';
     const msg = s.mins > 0
-      ? 'Heads up — only ' + s.mins + ' minutes to your ' + arrCity + ' departure. That connection is in trouble. Plan B is on your screen: your options, the rebooking links, and the number to call. You\'ve got a ladder — no stress.'
+      ? 'Heads up — ' + s.mins + ' minutes to your ' + arrCity + ' departure.' + seatBit + ' That connection is in trouble. Plan B is on your screen: your options, the rebooking links, and the number to call. You\'ve got a ladder — no stress.'
       : 'Your ' + arrCity + ' flight has departed. Plan B is on your screen — options, links, and the number to call. Work the ladder.';
     banner('🚨 PLAN B MODE — see options below.');
     speak(msg);
@@ -697,7 +740,8 @@ function planBCheck(fromLanding) {
     renderTrip();
   } else if (s.lvl === 'yellow') {
     planBAnnounced = true;
-    speak('You\'ve got ' + s.mins + ' minutes to your next departure — no pit stops, straight to the gate. If it slips, Plan B is loaded below.');
+    const seatBit = s.dm > 4 && s.seat ? ' — really ' + s.eff + ' once you\'re off from seat ' + s.seat : '';
+    speak('You\'ve got ' + s.mins + ' minutes to your next departure' + seatBit + '. No pit stops, straight to the gate. If it slips, Plan B is loaded below.');
     banner('⚠ ' + s.mins + ' min to departure — straight to the gate.');
     renderTrip();
   }
@@ -721,7 +765,8 @@ function planBHtml() {
   else { cls = 'ok'; head = '✓ ' + fm(s.mins) + ' to leg 2 departure — comfortable. Plan B rides along just in case.'; }
   let html = '<div class="phasecard" style="border-left-color:var(--' + (cls === 'late' ? 'bad' : cls === 'tight' ? 'warn' : 'ok') + ')">' +
     '<h2 style="font-size:19px">PLAN B — ' + connC + ' → ' + arrC + '</h2>' +
-    '<p><span class="buf ' + cls + '">' + head + '</span></p>';
+    '<p><span class="buf ' + cls + '">' + head + '</span></p>' +
+    (s.dm > 0 && s.seat ? '<p class="sub">Seat ' + s.seat + ' ≈ ' + s.dm + ' min to deplane — already counted in the verdict.</p>' : '');
   if (planText) planText.split('\n').filter(Boolean).forEach(l => { html += '<p style="font-size:15px">• ' + l + '</p>'; });
   else html += '<p class="sub">Ladder: 1) later flight tonight ' + connC + '→' + arrC + ' · 2) flight to a nearby airport + short drive · 3) rental car + drive. Never accept next-day if you have a morning deadline.</p>';
   html += '<div class="actions">';
@@ -1161,6 +1206,8 @@ function setPhase(i, announce) {
   state.phase = Math.max(0, Math.min(phases.length - 1, i));
   auto.anchor = null; // fresh dwell tracking for the new phase
   pit = { anchor: null, start: 0, prompted: false, wrapWarned: false };
+  if (phases[state.phase] && phases[state.phase].id === 'conn' && !connEnteredAt) connEnteredAt = Date.now();
+  if (phases[state.phase] && phases[state.phase].id !== 'conn') connEnteredAt = 0;
   saveState();
   renderTrip();
   if (announce && state.phase !== lastSpokenPhase) {
@@ -1535,7 +1582,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','seatOut','seatOut2','seatRet','seatRet2','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1549,6 +1596,8 @@ function saveTrip() {
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
     depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'), pace: val('f_pace'),
+    seatOut: val('f_seatOut').toUpperCase(), seatOut2: val('f_seatOut2').toUpperCase(),
+    seatRet: val('f_seatRet').toUpperCase(), seatRet2: val('f_seatRet2').toUpperCase(),
     connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     planBOut: document.getElementById('f_planBOut').value.trim(), planBRet: document.getElementById('f_planBRet').value.trim(),
@@ -1699,6 +1748,10 @@ const EXTRACT_KEYS = `
  "flightConf": "airline confirmation code or null",
  "firstName": "passenger first name as ticketed, or null",
  "lastName": "passenger last name as ticketed, or null",
+ "seatOut": "leg-1 outbound seat like 16A, or null",
+ "seatOut2": "leg-2 outbound seat, or null",
+ "seatRet": "leg-1 return seat, or null",
+ "seatRet2": "leg-2 return seat, or null",
  "rental": "one of: enterprise, hertz, avis, budget, national, alamo, dollar, thrifty, sixt — or null",
  "rentalConf": "rental confirmation number or null",
  "hotelName": "hotel name or null",
@@ -1804,6 +1857,8 @@ function applyExtracted(x, status) {
   if (set('f_flightConf', x.flightConf)) filled.push('conf ' + x.flightConf);
   if (set('f_firstName', x.firstName)) filled.push('name');
   set('f_lastName', x.lastName);
+  if (set('f_seatOut', x.seatOut)) filled.push('seats');
+  set('f_seatOut2', x.seatOut2); set('f_seatRet', x.seatRet); set('f_seatRet2', x.seatRet2);
   if (set('f_flightOut', x.flightOut)) filled.push('flight out');
   if (set('f_flightRet', x.flightRet)) filled.push('flight back');
   if (set('f_depDateOut', x.depDateOut)) filled.push('dep date out');

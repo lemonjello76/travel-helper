@@ -7,6 +7,7 @@
 window.AIRPORTS = {
 
   LAS: {
+    proTips: ["Board the tram at the FRONT car - first off, about 2 minutes ahead of the crowd at the D gates."],
     risks: ["Summer monsoon afternoons (Jul–Sep) can briefly stop ramp operations.", "A/B/C gates walk easy — D gates need the tram, budget it."],
     code: "LAS",
     name: "Harry Reid International",
@@ -48,6 +49,7 @@ window.AIRPORTS = {
   },
 
   TPA: {
+    proTips: ["Airside shuttle: stand at the doors facing the gate-side escalators - first down to the concourse."],
     risks: ["Summer afternoon thunderstorms (Jun–Sep) cause short ground stops almost daily — morning flights dodge most of it."],
     code: "TPA",
     name: "Tampa International",
@@ -86,6 +88,7 @@ window.AIRPORTS = {
   },
 
   MCO: {
+    proTips: ["People-mover to the airsides: front car, doors open toward the gates - you beat the herd."],
     risks: ["Afternoon storm season (Jun–Sep) = frequent late-day delays.", "Big airport — people-mover rides add real minutes to every gate."],
     code: "MCO",
     name: "Orlando International",
@@ -130,6 +133,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 for the Dayton trip (connection playbook — Lyle only connects here)
   CLT: {
+    proTips: ["Moving walkways to E: WALK them, do not ride - standing riders lose the minutes the walkway gave them."],
     risks: ["CHRONIC GATE SHORTAGE: landing on time often still means sitting on the tarmac waiting for a gate — never count wheels-down as gate time here.", "American’s connection banks pack the concourses in waves — Concourse E is a long, crowded walk at peak."],
     code: "CLT",
     name: "Charlotte Douglas International",
@@ -197,6 +201,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 (connection playbook — Skylink does the work)
   DFW: {
+    proTips: ["Skylink: board the FRONT car - first off at your terminal, ahead of everyone at the escalator."],
     risks: ["Texas heat storms (May–Sep) regularly ground-stop afternoons and evenings.", "Five terminals — confirm your gate’s terminal before riding Skylink."],
     code: "DFW",
     name: "Dallas/Fort Worth International",
@@ -228,6 +233,16 @@ window.AIRPORTS = {
     }
   }
 };
+
+// ============================================================
+// UNIVERSAL SECURITY PRO TIPS — the stuff nobody tells you until
+// you've lost 10 minutes at the recheck table. Field-tested.
+// ============================================================
+window.TSA_TIPS = [
+  "💡 Food ALWAYS risks the bag pull — even factory-sealed. Spices, tea, and coffee pop the X-ray every single time (organic powders read as suspect). If it must fly carry-on, expect the recheck lane.",
+  "💡 Empty your pockets into the bag BEFORE the bin line — PreCheck is only fast if you're not fishing for keys at the belt.",
+  "💡 Power banks and e-cigs ride carry-on only — in a checked bag they get your name called over the PA."
+];
 
 // ============================================================
 // AIRLINE REGISTRY — code: {name, appUrl}

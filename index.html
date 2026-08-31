@@ -493,13 +493,14 @@ function buildPhases() {
   }
   phases.push({
     id: 'security', title: 'Security' + (trip.precheck === 'yes' ? ' — PreCheck' : ''),
-    lines: [trip.precheck === 'yes' ? dep.departure.security.precheck : dep.departure.security.standard],
+    lines: [trip.precheck === 'yes' ? dep.departure.security.precheck : dep.departure.security.standard]
+      .concat(window.TSA_TIPS || []),
     voice: trip.precheck === 'yes' ? dep.departure.security.precheck : dep.departure.security.standard,
     actions: [{ label: 'Wait Times', url: dep.waitTimesUrl }]
   });
   phases.push({
     id: 'gate', title: 'To Your Gate',
-    lines: [pick(dep.departure.gates, trip.airline)],
+    lines: [pick(dep.departure.gates, trip.airline)].concat((dep.proTips || []).map(t => '💡 ' + t)),
     voice: pick(dep.departure.gates, trip.airline),
     actions: alBtn.concat(fsBtn)
   });
@@ -524,7 +525,8 @@ function buildPhases() {
       id: 'conn', title: 'Connection — ' + conn,
       lines: ['Stay airside — do NOT exit security or go near baggage claim. Your bag rides through on its own.',
         'Flight ' + (flight2 || '2') + ' to ' + arr.city + ' — check the ' + al.name + ' app or monitors for the gate.',
-        cap.unverified ? '' : pick(cap.departure.gates, trip.airline)],
+        cap.unverified ? '' : pick(cap.departure.gates, trip.airline)]
+        .concat((cap.proTips || []).map(t => '💡 ' + t)),
       voice: 'Welcome to ' + cap.city + '. Stay inside security — your bag transfers on its own. Check the app for your next gate.',
       actions: alBtn
     });
@@ -550,7 +552,7 @@ function buildPhases() {
   }
   phases.push({
     id: 'deplane', title: 'Welcome to ' + arr.city,
-    lines: [arrWarn, arr.arrival.toBaggage],
+    lines: [arrWarn, arr.arrival.toBaggage].concat((arr.proTips || []).map(t => '💡 ' + t)),
     voice: 'Welcome to ' + arr.city + '. ' + arr.arrival.toBaggage,
     actions: [
       { label: '📰 ' + arr.city + ' News', url: newsUrl(arr) },
@@ -1804,6 +1806,7 @@ async function genAirport(code, key) {
  },
  "times":{"bagDrop":15,"securityPre":15,"securityStd":35,"toGate":20,"rentalReturn":20},
  "risks":["1-2 short lines on this airport's CHRONIC issues a connecting traveler should know: gate shortages / tarmac waits, seasonal storm patterns, long walks or trains, notorious checkpoints — only real, well-known patterns, else empty array"],
+ "proTips":["0-2 insider movement hacks for this airport: which tram car to board, shortcut corridors, which checkpoint locals use — only real known tricks, else empty array"],
  "arrival":{
   "toBaggage":"gate to baggage claim (trains/shuttles/levels)",
   "baggage":"baggage claim specifics",

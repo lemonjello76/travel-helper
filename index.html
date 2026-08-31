@@ -237,6 +237,10 @@
         <div><label>Checking bags?</label><select id="f_bags"><option value="yes">Yes</option><option value="no">No — carry-on only</option></select></div>
         <div><label>Overweight bag (50+ lb)?</label><select id="f_heavyBag"><option value="no">No</option><option value="yes">Yes</option></select></div>
       </div>
+      <div class="row2">
+        <div><label>Walking pace</label><select id="f_pace"><option value="normal">Normal</option><option value="slow">Take it slow — pad every walk</option></select></div>
+        <div></div>
+      </div>
       <label style="margin-top:14px;color:var(--accent2)">— Plan B (backup ladder if a connection breaks) —</label>
       <label>Outbound Plan B (one option per line)</label>
       <textarea id="f_planBOut" rows="3" placeholder="e.g. Last CLT→DAY flight ~10:35 PM&#10;CLT→CVG last ~10:55 PM, then 1 hr drive&#10;Rental car: 7 hrs up I-77"></textarea>
@@ -624,6 +628,38 @@ function manageTripUrl() {
     .replace('{last}', encodeURIComponent(trip.lastName || ''))
     .replace('{first}', encodeURIComponent(trip.firstName || ''));
 }
+// Route Intel — chronic, structural airport risks briefed up front
+function paceFactor() { return trip && trip.pace === 'slow' ? 1.5 : 1; }
+function briefingLines() {
+  if (!trip) return [];
+  const out = state.dir === 'out';
+  const stops = [
+    [out ? trip.from : trip.to, 'Departure'],
+    [(out ? trip.connOut : trip.connRet) || null, 'Connection'],
+    [out ? trip.to : trip.from, 'Arrival']
+  ];
+  const lines = [];
+  stops.forEach(([code, label]) => {
+    if (!code) return;
+    const ap = AIRPORTS[code];
+    if (ap && ap.risks && ap.risks.length) ap.risks.forEach(r => lines.push({ code, label, text: r }));
+  });
+  return lines;
+}
+function briefingHtml() {
+  const lines = briefingLines();
+  if (!lines.length) return '';
+  let html = '<div class="phasecard" style="border-left-color:var(--warn)"><h2 style="font-size:18px">⚠ Route Intel</h2>';
+  lines.forEach(l => { html += '<p style="font-size:15px"><b>' + l.code + '</b> (' + l.label.toLowerCase() + '): ' + l.text + '</p>'; });
+  html += '<p class="sub">Live storm odds for your exact windows are on the Hub → Delay Risk.</p>' +
+    '<div class="actions"><button class="abtn" onclick="speakBriefing()">🎙 BRIEF ME</button></div></div>';
+  return html;
+}
+function speakBriefing() {
+  const lines = briefingLines();
+  if (!lines.length) { speak('No known trouble spots on this route.'); return; }
+  speak('Route intel. ' + lines.map(l => l.code + ', your ' + l.label.toLowerCase() + ': ' + l.text).join(' '));
+}
 function copyConf() {
   try {
     if (trip && trip.flightConf) {
@@ -638,8 +674,9 @@ function connStatus() {
   // gate/board included so Plan B is reachable BEFORE leg 1 even departs
   if (!['gate', 'board', 'flight', 'conn', 'board2'].includes(pid)) return null;
   const mins = Math.round((schedule.flight2.at - Date.now()) / 60000);
-  if (mins < 25) return { lvl: 'red', mins };
-  if (mins < 45) return { lvl: 'yellow', mins };
+  const pad = paceFactor() > 1 ? 15 : 0; // slower pace = earlier warnings
+  if (mins < 25 + pad) return { lvl: 'red', mins };
+  if (mins < 45 + pad) return { lvl: 'yellow', mins };
   return { lvl: 'ok', mins };
 }
 function planBCheck(fromLanding) {
@@ -950,7 +987,7 @@ function buildSchedule() {
   const t = dep.times || {};
   const bag = trip.bags === 'no' ? 0 : (t.bagDrop || 15); // carry-on = no counter stop
   const sec = trip.precheck === 'yes' ? (t.securityPre || 15) : (t.securityStd || 30);
-  const walk = t.toGate || 20;
+  const walk = Math.round((t.toGate || 20) * paceFactor()); // pace setting pads every walk
   const rentalDrop = (!out && trip.rental) ? (t.rentalReturn || 20) : 0;
   const [h, m] = depTime.split(':').map(Number);
   // Anchor to the actual flight DATE (not "today") — otherwise the countdown
@@ -1196,6 +1233,7 @@ function renderTrip() {
   }
   html += '</div>';
   if (['gate', 'board', 'flight', 'conn', 'board2'].includes(p.id)) html += planBHtml();
+  if (state.phase <= 1) html += briefingHtml(); // pre-departure heads-up
   html += '<div class="navrow">' +
     '<button onclick="setPhase(state.phase-1,false)">◂ BACK</button>' +
     '<button onclick="speak(phases[state.phase].voice)">🔊 SAY IT</button>' +
@@ -1497,7 +1535,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1510,7 +1548,7 @@ function saveTrip() {
     flightConf: val('f_flightConf').toUpperCase(), firstName: val('f_firstName'), lastName: val('f_lastName'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
-    depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'),
+    depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'), pace: val('f_pace'),
     connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     planBOut: document.getElementById('f_planBOut').value.trim(), planBRet: document.getElementById('f_planBRet').value.trim(),
@@ -1602,6 +1640,7 @@ async function genAirport(code, key) {
   "rentalReturn":"how rental car return works here"
  },
  "times":{"bagDrop":15,"securityPre":15,"securityStd":35,"toGate":20,"rentalReturn":20},
+ "risks":["1-2 short lines on this airport's CHRONIC issues a connecting traveler should know: gate shortages / tarmac waits, seasonal storm patterns, long walks or trains, notorious checkpoints — only real, well-known patterns, else empty array"],
  "arrival":{
   "toBaggage":"gate to baggage claim (trains/shuttles/levels)",
   "baggage":"baggage claim specifics",

@@ -7,6 +7,7 @@
 window.AIRPORTS = {
 
   LAS: {
+    risks: ["Summer monsoon afternoons (Jul–Sep) can briefly stop ramp operations.", "A/B/C gates walk easy — D gates need the tram, budget it."],
     code: "LAS",
     name: "Harry Reid International",
     city: "Las Vegas", state: "Nevada",
@@ -47,6 +48,7 @@ window.AIRPORTS = {
   },
 
   TPA: {
+    risks: ["Summer afternoon thunderstorms (Jun–Sep) cause short ground stops almost daily — morning flights dodge most of it."],
     code: "TPA",
     name: "Tampa International",
     city: "Tampa", state: "Florida",
@@ -84,6 +86,7 @@ window.AIRPORTS = {
   },
 
   MCO: {
+    risks: ["Afternoon storm season (Jun–Sep) = frequent late-day delays.", "Big airport — people-mover rides add real minutes to every gate."],
     code: "MCO",
     name: "Orlando International",
     city: "Orlando", state: "Florida",
@@ -127,6 +130,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 for the Dayton trip (connection playbook — Lyle only connects here)
   CLT: {
+    risks: ["CHRONIC GATE SHORTAGE: landing on time often still means sitting on the tarmac waiting for a gate — never count wheels-down as gate time here.", "American’s connection banks pack the concourses in waves — Concourse E is a long, crowded walk at peak."],
     code: "CLT",
     name: "Charlotte Douglas International",
     city: "Charlotte",
@@ -159,6 +163,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 — destination for the Aug 28-30 trip. Small and easy.
   DAY: {
+    risks: [],
     code: "DAY",
     name: "Dayton International",
     city: "Dayton",
@@ -192,6 +197,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 (connection playbook — Skylink does the work)
   DFW: {
+    risks: ["Texas heat storms (May–Sep) regularly ground-stop afternoons and evenings.", "Five terminals — confirm your gate’s terminal before riding Skylink."],
     code: "DFW",
     name: "Dallas/Fort Worth International",
     city: "Dallas",

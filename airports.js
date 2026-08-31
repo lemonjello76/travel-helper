@@ -235,18 +235,18 @@ window.AIRPORTS = {
 // ============================================================
 // icao = the 3-letter code FlightAware uses (SWA1234 = Southwest 1234)
 window.AIRLINES = {
-  WN: { name: "Southwest",  icao: "SWA", appUrl: "https://mobile.southwest.com", phone: "1-800-435-9792",
+  WN: { name: "Southwest",  icao: "SWA", appUrl: "https://mobile.southwest.com", phone: "1-800-435-9792", x: "SouthwestAir",
         manageUrl: "https://www.southwest.com/air/manage-reservation/index.html?confirmationNumber={conf}&passengerFirstName={first}&passengerLastName={last}" },
-  AA: { name: "American",   icao: "AAL", appUrl: "https://www.aa.com",           phone: "1-800-433-7300",
+  AA: { name: "American",   icao: "AAL", appUrl: "https://www.aa.com",           phone: "1-800-433-7300", x: "AmericanAir",
         manageUrl: "https://www.aa.com/reservation/viewReservationsAccess.do?anchorEvent=false&from=nav&recordLocator={conf}&searchType=byRecordLocator&lastName={last}" },
-  DL: { name: "Delta",      icao: "DAL", appUrl: "https://www.delta.com",        phone: "1-800-221-1212",
+  DL: { name: "Delta",      icao: "DAL", appUrl: "https://www.delta.com",        phone: "1-800-221-1212", x: "Delta",
         manageUrl: "https://www.delta.com/my-trips/search" },
-  UA: { name: "United",     icao: "UAL", appUrl: "https://www.united.com",       phone: "1-800-864-8331",
+  UA: { name: "United",     icao: "UAL", appUrl: "https://www.united.com",       phone: "1-800-864-8331", x: "united",
         manageUrl: "https://www.united.com/en/us/manageres/mytrips?ConfirmationNumber={conf}&LastName={last}" },
-  AS: { name: "Alaska",     icao: "ASA", appUrl: "https://www.alaskaair.com",    phone: "1-800-252-7522" },
-  B6: { name: "JetBlue",    icao: "JBU", appUrl: "https://www.jetblue.com",      phone: "1-800-538-2583" },
-  NK: { name: "Spirit",     icao: "NKS", appUrl: "https://www.spirit.com",       phone: "1-855-728-3555" },
-  F9: { name: "Frontier",   icao: "FFT", appUrl: "https://www.flyfrontier.com",  phone: "1-801-401-9000" }
+  AS: { name: "Alaska",     icao: "ASA", appUrl: "https://www.alaskaair.com",    phone: "1-800-252-7522", x: "AlaskaAir" },
+  B6: { name: "JetBlue",    icao: "JBU", appUrl: "https://www.jetblue.com",      phone: "1-800-538-2583", x: "JetBlue" },
+  NK: { name: "Spirit",     icao: "NKS", appUrl: "https://www.spirit.com",       phone: "1-855-728-3555", x: "SpiritAirlines" },
+  F9: { name: "Frontier",   icao: "FFT", appUrl: "https://www.flyfrontier.com",  phone: "1-801-401-9000", x: "FlyFrontier" }
 };
 
 // ============================================================

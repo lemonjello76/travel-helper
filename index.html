@@ -184,6 +184,11 @@
     <div id="tripContent"></div>
   </section>
 
+  <!-- PLAN B -->
+  <section class="view" id="view-planb">
+    <div id="planbContent"></div>
+  </section>
+
   <!-- HUB -->
   <section class="view" id="view-hub">
     <div id="hubContent"></div>
@@ -249,6 +254,11 @@
         <div><label>Walking pace</label><select id="f_pace"><option value="normal">Normal</option><option value="slow">Take it slow — pad every walk</option></select></div>
         <div></div>
       </div>
+      <label style="margin-top:14px;color:var(--accent2)">— Hard deadline (Plan B protects this above all) —</label>
+      <div class="row2">
+        <div><label>Must arrive by</label><input id="f_deadline" type="datetime-local"></div>
+        <div><label>What it is</label><input id="f_deadlineLabel" placeholder="e.g. funeral 10 AM / job walk 8 AM"></div>
+      </div>
       <label style="margin-top:14px;color:var(--accent2)">— Plan B (backup ladder if a connection breaks) —</label>
       <label>Outbound Plan B (one option per line)</label>
       <textarea id="f_planBOut" rows="3" placeholder="e.g. Last CLT→DAY flight ~10:35 PM&#10;CLT→CVG last ~10:55 PM, then 1 hr drive&#10;Rental car: 7 hrs up I-77"></textarea>
@@ -299,6 +309,7 @@
 
 <nav>
   <button id="tab-trip" class="active" onclick="showView('trip')">Trip</button>
+  <button id="tab-planb" onclick="showView('planb')">Plan B</button>
   <button id="tab-hub" onclick="showView('hub')">Hub</button>
   <button id="tab-setup" onclick="showView('setup')">Setup</button>
 </nav>
@@ -695,6 +706,105 @@ function speakBriefing() {
   if (!lines.length) { speak('No known trouble spots on this route.'); return; }
   speak('Route intel. ' + lines.map(l => l.code + ', your ' + l.label.toLowerCase() + ': ' + l.text).join(' '));
 }
+// =========================================================
+// PLAN B SCREEN — the function, full size. Decision support,
+// never automation: the app can't touch the reservation, so it
+// can't fight the airline's own recovery. Order of operations:
+// see what the airline already did -> judge it against YOUR
+// deadline -> then work the ladder.
+// =========================================================
+function renderPlanB() {
+  const el = document.getElementById('planbContent');
+  if (!el) return;
+  if (!trip) { el.innerHTML = '<div class="empty"><div class="big">🧭</div>Set up a trip first.</div>'; return; }
+  const out = state.dir === 'out';
+  const connC = (out ? trip.connOut : trip.connRet) || '';
+  const arrC = out ? trip.to : trip.from;
+  const fromC = connC || (out ? trip.from : trip.to);
+  const arrAp = AIRPORTS[arrC] || {};
+  const alx = AIRLINES[trip.airline] || {};
+  const d = out ? trip.depDateOut : trip.depDateRet;
+  const planText = (out ? trip.planBOut : trip.planBRet) || '';
+  const s = connStatus();
+  const mUrl = manageTripUrl();
+  let html = '';
+
+  // Verdict — big numbers or calm standby
+  if (s) {
+    const cls = s.lvl === 'red' ? 'late' : s.lvl === 'tight' || s.lvl === 'yellow' ? 'tight' : 'ok';
+    html += '<div class="phasecard" style="text-align:center;border-left-color:var(--' + (cls === 'late' ? 'bad' : cls === 'tight' ? 'warn' : 'ok') + ')">' +
+      '<div class="stepnum" style="margin-bottom:4px">' + fromC + ' → ' + arrC + ' · TO DEPARTURE</div>' +
+      '<div style="font-family:Consolas,monospace;font-size:52px;font-weight:800" class="buf ' + cls + '">' + (s.eff > 0 ? s.eff + '<span style="font-size:20px"> min</span>' : 'GONE') + '</div>' +
+      (s.dm > 0 && s.seat ? '<p class="sub">seat ' + s.seat + ' deplane time already counted</p>' : '') +
+      '</div>';
+  } else {
+    html += '<div class="phasecard"><h2 style="font-size:19px">PLAN B — ' + fromC + ' → ' + arrC + '</h2>' +
+      '<p class="sub">No live verdict right now — this screen is your playbook whenever anything breaks.</p></div>';
+  }
+
+  // Hard deadline — outranks everything, including the airline's algorithm
+  if (trip.deadline) {
+    const dl = new Date(trip.deadline);
+    html += '<div class="phasecard" style="border-left-color:var(--bad)">' +
+      '<h2 style="font-size:16px;color:var(--bad)">⛔ HARD DEADLINE</h2>' +
+      '<p><b>' + (trip.deadlineLabel || 'Must arrive') + '</b> — ' +
+      dl.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + '</p>' +
+      '<p class="sub">Any rebooking that lands after this LOSES — reject it, work the ladder instead. The airline\'s auto-rebook aims for "eventually," not for this.</p></div>';
+  }
+
+  // Step 1: the airline may already be fixing it — check before acting
+  html += '<div class="phasecard" style="border-left-color:var(--accent)">' +
+    '<h2 style="font-size:16px">1 · SEE WHAT ' + (alx.name || 'THE AIRLINE').toUpperCase() + ' ALREADY DID</h2>' +
+    '<p>Disruptions auto-rebook fast — check the reservation FIRST so you don\'t double-book or buy what they\'d give you free. Accept it only if it beats your deadline.</p>' +
+    '<div class="actions">' +
+    (mUrl ? '<a class="abtn primary glow" href="' + mUrl + '" onclick="copyConf()" target="_blank" rel="noopener">🎫 Open Reservation' + (trip.flightConf ? ' (' + trip.flightConf + ')' : '') + '</a>' : '') +
+    '</div></div>';
+
+  // Step 2: the ladder — every rung carries its own execution buttons,
+  // so "CVG + 1 hr drive" comes with rent-at-CVG and drive-from-CVG right there.
+  const rc0 = RENTALS[trip.rental];
+  html += '<div class="phasecard"><h2 style="font-size:16px">2 · YOUR LADDER</h2>';
+  if (planText) planText.split('\n').filter(Boolean).forEach((l, i) => {
+    html += '<div style="margin-bottom:14px"><p style="font-size:16px;margin-bottom:6px"><b style="color:var(--accent)">' + (i + 1) + '.</b> ' + l + '</p>';
+    // airport codes named in this rung (other than the final destination) get one-tap tools
+    const codes = [...new Set((l.match(/\b[A-Z]{3}\b/g) || []))].filter(c => c !== arrC);
+    const rung = [];
+    codes.slice(0, 2).forEach(c => {
+      if (/rental|rent|drive|car/i.test(l) || c !== fromC) {
+        if (rc0) rung.push('<a class="abtn" style="flex:0 1 auto;padding:9px 12px;font-size:13px" href="' + rc0.url + '" target="_blank" rel="noopener">🚙 ' + rc0.name + ' @ ' + c + '</a>');
+        rung.push('<a class="abtn" style="flex:0 1 auto;padding:9px 12px;font-size:13px" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(((AIRPORTS[c] || {}).name || c) + ' airport') + '&destination=' + encodeURIComponent(out ? (trip.hotelAddr || arrC) : (trip.homeAddr || arrC)) + '" target="_blank" rel="noopener">🗺 ' + c + ' → done</a>');
+        if (c !== fromC) rung.push('<a class="abtn" style="flex:0 1 auto;padding:9px 12px;font-size:13px" href="https://www.google.com/travel/flights?q=' + encodeURIComponent('flights from ' + fromC + ' to ' + c + (d ? ' on ' + d : '')) + '" target="_blank" rel="noopener">🔎 ' + fromC + '→' + c + '</a>');
+      }
+    });
+    if (rung.length) html += '<div class="actions" style="gap:8px">' + [...new Set(rung)].join('') + '</div>';
+    html += '</div>';
+  });
+  else html += '<p class="sub">No ladder saved for this direction — Setup → Plan B, or hit BUILD PLAN B LADDERS (AI). Generic order: later flight tonight → nearby airport + drive → rental car all the way. Never accept next-day against a morning deadline.</p>';
+  html += '</div>';
+
+  // Step 3: channels, ranked by speed
+  html += '<div class="phasecard"><h2 style="font-size:16px">3 · WORK EVERY CHANNEL AT ONCE</h2>' +
+    '<p class="sub">Gate agent line + phone on hold + X DM with your record locator — first one to answer wins.</p>' +
+    '<div class="actions">' +
+    (alx.phone ? '<a class="abtn" href="tel:' + alx.phone.replace(/[^0-9+]/g, '') + '">📞 Call ' + (alx.name || '') + '</a>' : '') +
+    (alx.x ? '<a class="abtn" href="https://x.com/' + alx.x + '" target="_blank" rel="noopener">𝕏 DM @' + alx.x + '</a>' : '') +
+    (alx.appUrl ? '<a class="abtn" href="' + alx.appUrl + '" target="_blank" rel="noopener">✈️ ' + (alx.name || '') + ' App</a>' : '') +
+    '<a class="abtn" href="https://www.google.com/travel/flights?q=' + encodeURIComponent('flights from ' + fromC + ' to ' + arrC + (d ? ' on ' + d : '')) + '" target="_blank" rel="noopener">🔎 All flights</a>' +
+    '</div></div>';
+
+  // Step 4: ground game
+  const driveDest = out ? (trip.hotelAddr || arrAp.city || arrC) : (trip.homeAddr || arrAp.city || arrC);
+  const rc = RENTALS[trip.rental];
+  html += '<div class="phasecard"><h2 style="font-size:16px">4 · THE GROUND GAME</h2>' +
+    '<p class="sub">When nothing flies tonight, wheels still roll. One-way fees are cheaper than missing it.</p>' +
+    '<div class="actions">' +
+    '<a class="abtn" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(((AIRPORTS[fromC] || {}).name || fromC) + ' airport') + '&destination=' + encodeURIComponent(driveDest) + '" target="_blank" rel="noopener">🚗 Drive it</a>' +
+    (rc ? '<a class="abtn" href="' + rc.url + '" target="_blank" rel="noopener">🚙 ' + rc.name + ' at ' + fromC + '</a>' : '') +
+    '</div></div>';
+
+  el.innerHTML = html;
+}
+
 function copyConf() {
   try {
     if (trip && trip.flightConf) {
@@ -734,10 +844,11 @@ function planBCheck(fromLanding) {
     const msg = s.mins > 0
       ? 'Heads up — ' + s.mins + ' minutes to your ' + arrCity + ' departure.' + seatBit + ' That connection is in trouble. Plan B is on your screen: your options, the rebooking links, and the number to call. You\'ve got a ladder — no stress.'
       : 'Your ' + arrCity + ' flight has departed. Plan B is on your screen — options, links, and the number to call. Work the ladder.';
-    banner('🚨 PLAN B MODE — see options below.');
-    speak(msg);
-    notifyText('🚨 Plan B mode', 'Connection in trouble — options are on screen.');
+    banner('🚨 PLAN B MODE');
+    speak(msg + (trip.deadline ? ' Remember the hard deadline: ' + (trip.deadlineLabel || 'your arrival time') + '. Reject anything that lands after it.' : ''));
+    notifyText('🚨 Plan B mode', 'Connection in trouble — the Plan B screen is up.');
     renderTrip();
+    showView('planb'); // the function gets the whole screen
   } else if (s.lvl === 'yellow') {
     planBAnnounced = true;
     const seatBit = s.dm > 4 && s.seat ? ' — really ' + s.eff + ' once you\'re off from seat ' + s.seat : '';
@@ -771,7 +882,8 @@ function planBHtml() {
   else html += '<p class="sub">Ladder: 1) later flight tonight ' + connC + '→' + arrC + ' · 2) flight to a nearby airport + short drive · 3) rental car + drive. Never accept next-day if you have a morning deadline.</p>';
   html += '<div class="actions">';
   const mUrl = manageTripUrl();
-  if (mUrl) html += '<a class="abtn primary" href="' + mUrl + '" onclick="copyConf()" target="_blank" rel="noopener">🎫 ' + alx.name + ' Rebook' + (trip.flightConf ? ' (' + trip.flightConf + ')' : '') + '</a>';
+  html += '<button class="abtn primary" onclick="showView(\'planb\')">🧭 OPEN PLAN B SCREEN</button>';
+  if (mUrl) html += '<a class="abtn" href="' + mUrl + '" onclick="copyConf()" target="_blank" rel="noopener">🎫 ' + alx.name + ' Rebook' + (trip.flightConf ? ' (' + trip.flightConf + ')' : '') + '</a>';
   if (alx.phone) html += '<a class="abtn" href="tel:' + alx.phone.replace(/[^0-9+]/g, '') + '">📞 Call ' + alx.name + '</a>';
   html += '<a class="abtn" href="https://www.google.com/travel/flights?q=' + encodeURIComponent('flights from ' + connC + ' to ' + arrC + (d ? ' on ' + d : '')) + '" target="_blank" rel="noopener">🔎 All flights tonight</a>';
   const driveDest = out ? (trip.hotelAddr || arrAp.city || arrC) : (trip.homeAddr || arrAp.city || arrC);
@@ -1235,6 +1347,7 @@ function showView(v) {
   document.getElementById('view-' + v).classList.add('active');
   document.getElementById('tab-' + v).classList.add('active');
   if (v === 'hub') { loadWeather(); loadRisk(); }
+  if (v === 'planb') renderPlanB();
 }
 
 // =========================================================
@@ -1582,7 +1695,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','seatOut','seatOut2','seatRet','seatRet2','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','seatOut','seatOut2','seatRet','seatRet2','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','deadline','deadlineLabel','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1601,6 +1714,7 @@ function saveTrip() {
     connOut: val('f_connOut').toUpperCase(), flightOut2: val('f_flightOut2'), depTimeOut2: val('f_depTimeOut2'),
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     planBOut: document.getElementById('f_planBOut').value.trim(), planBRet: document.getElementById('f_planBRet').value.trim(),
+    deadline: val('f_deadline'), deadlineLabel: val('f_deadlineLabel'),
     rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')

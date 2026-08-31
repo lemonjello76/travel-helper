@@ -201,7 +201,7 @@
       <label>Southwest, rental, or hotel confirmation email — paste it, AI fills the form below</label>
       <textarea id="f_paste" rows="5" placeholder="Copy the confirmation email from Gmail and paste the whole thing here. One at a time or all three stacked together — both work."></textarea>
       <button class="savebtn" style="margin-top:10px" onclick="aiFill()">FILL FROM EMAIL</button>
-      <input type="file" id="f_shots" accept="image/*" multiple style="display:none" onchange="aiFillImages(this.files)">
+      <input type="file" id="f_shots" accept="image/*,application/pdf" multiple style="display:none" onchange="aiFillImages(this.files)">
       <button class="hbtn" style="width:100%" onclick="document.getElementById('f_shots').click()">📸 FILL FROM SCREENSHOTS (easier — screenshot the email, pick it here)</button>
       <div class="note" id="aiStatus"></div>
       <label>Anthropic API key (one time — stays on this phone)</label>
@@ -1385,7 +1385,15 @@ function renderHeader() {
 function renderTrip() {
   const el = document.getElementById('tripContent');
   if (!trip || !phases.length) {
-    el.innerHTML = '<div class="empty"><div class="big">🧳</div>No trip loaded yet.<br>Hit <b>Setup</b> and fill in your trip.</div>';
+    el.innerHTML =
+      '<div class="phasecard" style="text-align:center"><h2 style="font-size:22px">Load your trip in 10 seconds</h2>' +
+      '<p style="text-align:left;margin-top:14px"><b>1.</b> Open your airline confirmation email and <b>screenshot it</b>.</p>' +
+      '<p style="text-align:left"><b>2.</b> Tap <b>Share → Travel Helper</b> on the screenshot.</p>' +
+      '<p style="text-align:left"><b>3.</b> That\'s it — the trip builds itself and starts talking.</p>' +
+      '<div class="actions" style="margin-top:16px">' +
+      '<button class="abtn primary glow" onclick="document.getElementById(\'f_shots\').click()">📸 OR PICK THE SCREENSHOT HERE</button>' +
+      '<button class="abtn" onclick="showView(\'setup\')">⌨️ Type it in instead</button></div>' +
+      '<p class="sub" style="margin-top:12px">Hotel or rental email too? Share those the same way — they stack onto the trip.</p></div>';
     return;
   }
   const p = phases[state.phase];
@@ -1914,7 +1922,7 @@ const EXTRACT_KEYS = `
 async function aiFillImages(fileList) {
   const status = document.getElementById('aiStatus');
   const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
-  const files = [...(fileList || [])].filter(f => f.type.startsWith('image/')).slice(0, 5);
+  const files = [...(fileList || [])].filter(f => f.type.startsWith('image/') || f.type === 'application/pdf').slice(0, 5);
   if (!files.length) { status.textContent = 'No screenshots picked.'; return; }
   if (!key) { status.textContent = 'Need your Anthropic API key (one time) — field below.'; return; }
   localStorage.setItem('th_apikey', key);
@@ -1928,7 +1936,9 @@ async function aiFillImages(fileList) {
         r.onerror = rej;
         r.readAsDataURL(f);
       });
-      blocks.push({ type: 'image', source: { type: 'base64', media_type: f.type, data: b64 } });
+      blocks.push(f.type === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+        : { type: 'image', source: { type: 'base64', media_type: f.type, data: b64 } });
     }
     blocks.push({ type: 'text', text: extractSchemaPrompt('the screenshot(s) of the confirmation email(s) above') });
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2035,9 +2045,19 @@ function applyExtracted(x, status) {
     status.textContent = '🤷 Didn\'t find booking details in that. Make sure the whole email came along in the paste.';
     return;
   }
+  // Zero-decision loading: if the essentials landed, save the trip ourselves.
+  const complete = ['f_from', 'f_to', 'f_airline', 'f_depDateOut', 'f_depTimeOut']
+    .every(id => document.getElementById(id).value.trim());
+  if (complete) {
+    status.textContent = '✅ ' + filled.join(', ') + '.' +
+      (warns.length ? ' ⚠ ' + warns.join('; ') + ' — tap BUILD MISSING PLAYBOOKS below.' : '') +
+      ' Trip saved automatically — fix anything here and hit SAVE TRIP again if needed.';
+    saveTrip(); // speaks the confirmation and lands on the Trip screen
+    return;
+  }
   status.textContent = '✅ Filled: ' + filled.join(', ') + '.' +
     (warns.length ? ' ⚠ ' + warns.join('; ') + ' — type the code in anyway and hit BUILD MISSING PLAYBOOKS.' : '') +
-    ' Check it over, add the next email, or hit SAVE TRIP.';
+    ' Add the next email (hotel / rental), or hit SAVE TRIP.';
 }
 
 // =========================================================

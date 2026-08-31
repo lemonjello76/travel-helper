@@ -14,7 +14,7 @@
     "params": {
       "title": "title",
       "text": "text",
-      "files": [{ "name": "media", "accept": ["image/*"] }]
+      "files": [{ "name": "media", "accept": ["image/*", "application/pdf"] }]
     }
   },
   "icons": [

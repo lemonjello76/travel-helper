@@ -90,18 +90,21 @@ window.SIM = (() => {
         };
       } },
 
-    { name: 'REAL #2 — the taxi-back (boarded at DAY, 4-hr delay kills the DFW connection BEFORE takeoff)',
+    { name: 'REAL #2 — the taxi-back (boarded at DAY, delay eats the DFW buffer BEFORE takeoff — deterministic times)',
       run() {
-        const t = daytonTrip(-2 * 86400000 - 4 * H); // outbound long past
-        setup(t, 'ret', 'board'); // boarded the return leg 1 at Dayton
-        simNow += 45 * M; // sitting on the taxiway; dep+45m, 60-min conn now dead-ish
+        const t = daytonTrip(-2 * 86400000); // outbound long past
+        // pin the return legs to the sim clock: leg 1 was due 45 min AGO
+        // (we're still sitting on it), leg 2 departs DFW in 20 min = dead.
+        t.depDateRet = D(simNow - 45 * M); t.depTimeRet = T(simNow - 45 * M);
+        t.depTimeRet2 = T(simNow + 20 * M);
+        setup(t, 'ret', 'board'); // boarded leg 1 at Dayton, going nowhere
         planBCheck(true);
         const s = connStatus();
         return {
           'verdict computed at ORIGIN gate': !!s,
-          'went RED before takeoff': s && s.lvl === 'red',
+          'buffer-death branch (not GONE)': s && s.mins > 0 && s.lvl === 'red',
           'Plan B screen auto-opened': cap.views.includes('planb'),
-          'voice said no-stress + ladder': cap.spoke.some(x => /Plan B is on your screen/i.test(x))
+          'voice: minutes named + no-stress ladder': cap.spoke.some(x => /minutes to your .* departure/i.test(x) && /Plan B is on your screen/i.test(x))
         };
       } },
 

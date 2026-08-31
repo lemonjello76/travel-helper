@@ -419,7 +419,7 @@ async function pullCloudTrip() {
     if (snap.exists) {
       const d = snap.data();
       if (d && d.trip && (d.updatedAt || 0) > localSavedAt()) {
-        trip = d.trip;
+        trip = sanitizeDeep(d.trip); // cloud doc is remote input — never trust it into innerHTML
         localStorage.setItem('th_trip', JSON.stringify(trip));
         localStorage.setItem('th_tripSavedAt', String(d.updatedAt));
         buildPhases(); renderHeader(); renderTrip(); renderHub(); fillForm();
@@ -945,7 +945,7 @@ async function aiRefreshPlanB() {
     const data = await res.json();
     const txt = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
     if (!txt) throw new Error('empty reply');
-    if (out) trip.planBOut = txt; else trip.planBRet = txt;
+    if (out) trip.planBOut = sanitize(txt); else trip.planBRet = sanitize(txt);
     localStorage.setItem('th_trip', JSON.stringify(trip));
     localStorage.setItem('th_tripSavedAt', String(Date.now()));
     pushCloudTrip();
@@ -1721,6 +1721,7 @@ function saveTrip() {
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')
   };
+  sanitizeDeep(trip);
   localStorage.setItem('th_trip', JSON.stringify(trip));
   localStorage.setItem('th_tripSavedAt', String(Date.now()));
   state.phase = 0; state.dir = 'out'; lastSpokenPhase = -1; planBAnnounced = false;
@@ -1732,6 +1733,17 @@ function saveTrip() {
   showView('trip');
 }
 function val(id) { return document.getElementById(id).value.trim(); }
+
+// Security chokepoint: nothing that enters the trip file or a playbook may
+// carry HTML. Pasted emails and AI output are untrusted input — a crafted
+// "confirmation" must never become script when we render fields into cards.
+function sanitize(v) { return typeof v === 'string' ? v.replace(/[<>]/g, '') : v; }
+function sanitizeDeep(o) {
+  if (typeof o === 'string') return sanitize(o);
+  if (Array.isArray(o)) return o.map(sanitizeDeep);
+  if (o && typeof o === 'object') { for (const k of Object.keys(o)) o[k] = sanitizeDeep(o[k]); return o; }
+  return o;
+}
 
 // =========================================================
 // AI PLAYBOOK BUILDER — type any airport code, Claude drafts the
@@ -1830,6 +1842,7 @@ Adjust the "times" numbers to this airport's real scale (big airport with trains
   return JSON.parse(raw);
 }
 function installPlaybook(code, pb) {
+  sanitizeDeep(pb); // AI output renders into cards — strip any markup
   pb.code = code;
   pb.unverified = 'ai';
   if (!pb.times) pb.times = { bagDrop: 15, securityPre: 15, securityStd: 35, toGate: 20, rentalReturn: 20 };

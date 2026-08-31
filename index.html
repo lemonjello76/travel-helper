@@ -1262,6 +1262,26 @@ function renderBoardBar() {
 }
 setInterval(renderBoardBar, 1000);
 
+// Timezone watchdog: flight times parse as phone-local, and the phone
+// re-zones as you fly. If the app stayed open across a zone change, the
+// old schedule is off by the zone delta — in the DANGEROUS direction
+// (a Vegas-built schedule reads Charlotte times 3h too relaxed). The
+// moment the phone's zone shifts, rebuild every clock.
+let tzOffsetCached = new Date().getTimezoneOffset();
+function tzWatch() {
+  const nowOff = new Date().getTimezoneOffset();
+  if (nowOff !== tzOffsetCached) {
+    tzOffsetCached = nowOff;
+    if (trip) {
+      buildPhases();
+      renderTrip(); renderHub(); renderBoardBar();
+      banner('🕐 Time zone changed — all clocks re-synced to local time.');
+      speak('New time zone — I re-synced every clock to local time.');
+    }
+  }
+}
+setInterval(tzWatch, 30000);
+
 // =========================================================
 // VOICE
 // =========================================================

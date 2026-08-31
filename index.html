@@ -196,6 +196,8 @@
       <label>Southwest, rental, or hotel confirmation email — paste it, AI fills the form below</label>
       <textarea id="f_paste" rows="5" placeholder="Copy the confirmation email from Gmail and paste the whole thing here. One at a time or all three stacked together — both work."></textarea>
       <button class="savebtn" style="margin-top:10px" onclick="aiFill()">FILL FROM EMAIL</button>
+      <input type="file" id="f_shots" accept="image/*" multiple style="display:none" onchange="aiFillImages(this.files)">
+      <button class="hbtn" style="width:100%" onclick="document.getElementById('f_shots').click()">📸 FILL FROM SCREENSHOTS (easier — screenshot the email, pick it here)</button>
       <div class="note" id="aiStatus"></div>
       <label>Anthropic API key (one time — stays on this phone)</label>
       <input id="f_apikey" type="password" placeholder="sk-ant-...">
@@ -212,6 +214,12 @@
       <div class="row2">
         <div><label>Airline</label><select id="f_airline"></select></div>
         <div><label>Flight # outbound</label><input id="f_flightOut" placeholder="e.g. 1234"></div>
+      </div>
+      <div class="row2">
+        <div><label>Airline conf #</label><input id="f_flightConf" placeholder="e.g. QVXTRB"></div>
+        <div><label>Name on ticket (first / last)</label>
+          <div class="row2" style="gap:6px"><input id="f_firstName" placeholder="First"><input id="f_lastName" placeholder="Last"></div>
+        </div>
       </div>
       <div class="row2">
         <div><label>Flight # return</label><input id="f_flightRet" placeholder="e.g. 5678"></div>
@@ -607,6 +615,23 @@ function lastDepDT(dir) { return tripDT2(dir) || tripDT(dir); }
 // vs leg-2 departure time = the verdict, rendered during taxi.
 // =========================================================
 let planBAnnounced = false;
+// Airline "manage trip" deep link with conf/name filled where the airline allows
+function manageTripUrl() {
+  const alx = AIRLINES[trip && trip.airline] || {};
+  if (!alx.manageUrl) return alx.appUrl || null;
+  return alx.manageUrl
+    .replace('{conf}', encodeURIComponent(trip.flightConf || ''))
+    .replace('{last}', encodeURIComponent(trip.lastName || ''))
+    .replace('{first}', encodeURIComponent(trip.firstName || ''));
+}
+function copyConf() {
+  try {
+    if (trip && trip.flightConf) {
+      navigator.clipboard.writeText(trip.flightConf);
+      banner('📋 Conf ' + trip.flightConf + ' copied — paste it if the page asks.');
+    }
+  } catch (e) {}
+}
 function connStatus() {
   if (!schedule.flight2 || !phases.length) return null;
   const pid = phases[state.phase].id;
@@ -663,7 +688,8 @@ function planBHtml() {
   if (planText) planText.split('\n').filter(Boolean).forEach(l => { html += '<p style="font-size:15px">• ' + l + '</p>'; });
   else html += '<p class="sub">Ladder: 1) later flight tonight ' + connC + '→' + arrC + ' · 2) flight to a nearby airport + short drive · 3) rental car + drive. Never accept next-day if you have a morning deadline.</p>';
   html += '<div class="actions">';
-  if (alx.appUrl) html += '<a class="abtn primary" href="' + alx.appUrl + '" target="_blank" rel="noopener">✈️ ' + alx.name + ' Rebook</a>';
+  const mUrl = manageTripUrl();
+  if (mUrl) html += '<a class="abtn primary" href="' + mUrl + '" onclick="copyConf()" target="_blank" rel="noopener">🎫 ' + alx.name + ' Rebook' + (trip.flightConf ? ' (' + trip.flightConf + ')' : '') + '</a>';
   if (alx.phone) html += '<a class="abtn" href="tel:' + alx.phone.replace(/[^0-9+]/g, '') + '">📞 Call ' + alx.name + '</a>';
   html += '<a class="abtn" href="https://www.google.com/travel/flights?q=' + encodeURIComponent('flights from ' + connC + ' to ' + arrC + (d ? ' on ' + d : '')) + '" target="_blank" rel="noopener">🔎 All flights tonight</a>';
   const driveDest = out ? (trip.hotelAddr || arrAp.city || arrC) : (trip.homeAddr || arrAp.city || arrC);
@@ -1201,6 +1227,8 @@ function renderHub() {
 
   const hubFlight = out ? trip.flightOut : trip.flightRet;
   let html = '<div class="sectionhead">Launch</div><div class="hubgrid">';
+  const mu = manageTripUrl();
+  if (mu && trip.flightConf) html += '<a class="hubbtn waze" href="' + mu + '" onclick="copyConf()" target="_blank" rel="noopener"><span class="ico">🎫</span>Manage Trip (' + trip.flightConf + ')</a>';
   if (al && al.appUrl) html += hub('✈️', al.name, al.appUrl);
   if (al && al.icao && hubFlight) html += hub('📡', 'Flight Status', 'https://www.flightaware.com/live/flight/' + al.icao + hubFlight);
   if (rental) html += hub('🚙', rental.name, rental.url);
@@ -1469,7 +1497,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1479,6 +1507,7 @@ function fillForm() {
 function saveTrip() {
   trip = {
     from: val('f_from').toUpperCase(), to: val('f_to').toUpperCase(), airline: val('f_airline'),
+    flightConf: val('f_flightConf').toUpperCase(), firstName: val('f_firstName'), lastName: val('f_lastName'),
     flightOut: val('f_flightOut'), flightRet: val('f_flightRet'), precheck: val('f_precheck'),
     depDateOut: val('f_depDateOut'), depTimeOut: val('f_depTimeOut'),
     depDateRet: val('f_depDateRet'), depTimeRet: val('f_depTimeRet'), bags: val('f_bags'), heavyBag: val('f_heavyBag'),
@@ -1611,16 +1640,7 @@ function installPlaybook(code, pb) {
 // AI FILL — paste a confirmation email, Claude fills the form
 // Same pattern as Job Tracker's receipt extraction.
 // =========================================================
-async function aiFill() {
-  const status = document.getElementById('aiStatus');
-  const text = val('f_paste');
-  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
-  if (!text) { status.textContent = 'Paste a confirmation email in the box first.'; return; }
-  if (!key) { status.textContent = 'Need your Anthropic API key (one time) — same one Job Tracker uses.'; return; }
-  localStorage.setItem('th_apikey', key);
-  status.textContent = '⏳ Reading the email…';
-  const prompt =
-`Extract travel booking details from the confirmation email below. Reply with ONLY a JSON object, no other text, using exactly these keys (null for anything not present):
+const EXTRACT_KEYS = `
 {
  "from": "3-letter IATA code of outbound origin airport or null",
  "to": "3-letter IATA code of outbound destination airport or null",
@@ -1638,15 +1658,66 @@ async function aiFill() {
  "flightRet2": "second-leg return flight number, digits only, else null",
  "depTimeRet2": "second-leg return departure time as 24h HH:MM local, else null",
  "flightConf": "airline confirmation code or null",
+ "firstName": "passenger first name as ticketed, or null",
+ "lastName": "passenger last name as ticketed, or null",
  "rental": "one of: enterprise, hertz, avis, budget, national, alamo, dollar, thrifty, sixt — or null",
  "rentalConf": "rental confirmation number or null",
  "hotelName": "hotel name or null",
  "hotelAddr": "hotel street address, city, state or null",
  "hotelConf": "hotel confirmation number or null"
+}`;
+
+// Screenshot path — share or pick screenshots of the confirmation email,
+// Claude vision reads them. Same schema, no text selection needed.
+async function aiFillImages(fileList) {
+  const status = document.getElementById('aiStatus');
+  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
+  const files = [...(fileList || [])].filter(f => f.type.startsWith('image/')).slice(0, 5);
+  if (!files.length) { status.textContent = 'No screenshots picked.'; return; }
+  if (!key) { status.textContent = 'Need your Anthropic API key (one time) — field below.'; return; }
+  localStorage.setItem('th_apikey', key);
+  status.textContent = '⏳ Reading ' + files.length + ' screenshot' + (files.length > 1 ? 's' : '') + '…';
+  try {
+    const blocks = [];
+    for (const f of files) {
+      const b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+      blocks.push({ type: 'image', source: { type: 'base64', media_type: f.type, data: b64 } });
+    }
+    blocks.push({ type: 'text', text: extractSchemaPrompt('the screenshot(s) of the confirmation email(s) above') });
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, messages: [{ role: 'user', content: blocks }] })
+    });
+    if (!res.ok) { status.textContent = '❌ API error ' + res.status + (res.status === 401 ? ' — check the API key.' : ''); return; }
+    const data = await res.json();
+    let raw = (data.content && data.content[0] && data.content[0].text || '').trim();
+    raw = raw.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    applyExtracted(JSON.parse(raw), status);
+  } catch (e) {
+    status.textContent = '❌ Couldn\'t read those (' + e.message + '). Try clearer screenshots, one email at a time.';
+  }
+  document.getElementById('f_shots').value = '';
 }
 
-EMAIL:
-` + text;
+function extractSchemaPrompt(sourceDesc) {
+  return 'Extract travel booking details from ' + sourceDesc + '. Reply with ONLY a JSON object, no other text, using exactly these keys (null for anything not present):' + EXTRACT_KEYS;
+}
+
+async function aiFill() {
+  const status = document.getElementById('aiStatus');
+  const text = val('f_paste');
+  const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
+  if (!text) { status.textContent = 'Paste a confirmation email in the box first — or use the screenshot button.'; return; }
+  if (!key) { status.textContent = 'Need your Anthropic API key (one time) — same one Job Tracker uses.'; return; }
+  localStorage.setItem('th_apikey', key);
+  status.textContent = '⏳ Reading the email…';
+  const prompt = extractSchemaPrompt('the confirmation email below') + '\n\nEMAIL:\n' + text;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1691,6 +1762,9 @@ function applyExtracted(x, status) {
     if (!AIRPORTS[x.to]) warns.push('no playbook for ' + x.to + ' yet');
   }
   if (x.airline && AIRLINES[x.airline]) { set('f_airline', x.airline); filled.push(AIRLINES[x.airline].name); }
+  if (set('f_flightConf', x.flightConf)) filled.push('conf ' + x.flightConf);
+  if (set('f_firstName', x.firstName)) filled.push('name');
+  set('f_lastName', x.lastName);
   if (set('f_flightOut', x.flightOut)) filled.push('flight out');
   if (set('f_flightRet', x.flightRet)) filled.push('flight back');
   if (set('f_depDateOut', x.depDateOut)) filled.push('dep date out');
@@ -1741,6 +1815,32 @@ window.addEventListener('pointerdown', () => {
   }
 }, { once: true });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// Shared-from-Gmail pickup: SW stashed the screenshots, we run vision on them
+if (location.search.includes('shared=1')) handleShared();
+async function handleShared() {
+  try {
+    history.replaceState(null, '', location.pathname); // clean the URL
+    const cache = await caches.open('th-share');
+    const cntR = await cache.match('shared-count');
+    const cnt = cntR ? (parseInt(await cntR.text()) || 0) : 0;
+    const files = [];
+    for (let i = 0; i < cnt; i++) {
+      const r = await cache.match('shared-file-' + i);
+      if (r) {
+        const b = await r.blob();
+        files.push(new File([b], 'shared-' + i + '.png', { type: b.type || 'image/png' }));
+      }
+      cache.delete('shared-file-' + i);
+    }
+    const textR = await cache.match('shared-text');
+    const text = textR ? await textR.text() : '';
+    cache.delete('shared-text'); cache.delete('shared-count');
+    showView('setup');
+    if (files.length) aiFillImages(files);
+    else if (text.trim()) { document.getElementById('f_paste').value = text; aiFill(); }
+  } catch (e) {}
+}
 </script>
 </body>
 </html>

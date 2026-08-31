@@ -1,5 +1,5 @@
 // Travel Helper service worker — offline app shell
-const CACHE = 'travel-helper-v2'; // v2: cloud sync + flight status + landing weather + news
+const CACHE = 'travel-helper-v3'; // v3: share target + manage-trip links + screenshot import
 const SHELL = ['./', './index.html', './airports.js', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png'];
 
@@ -37,6 +37,28 @@ self.addEventListener('notificationclick', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return; // let API calls hit the network directly
+
+  // Android Share Target: screenshots shared from Gmail land here,
+  // get stashed in a cache, and the app picks them up on redirect.
+  if (e.request.method === 'POST' && url.pathname.endsWith('/share-target/')) {
+    e.respondWith((async () => {
+      try {
+        const form = await e.request.formData();
+        const files = form.getAll('media').filter(f => f && f.size);
+        const text = form.get('text') || form.get('title') || '';
+        const cache = await caches.open('th-share');
+        await cache.put('shared-text', new Response(text));
+        await cache.put('shared-count', new Response(String(files.length)));
+        for (let i = 0; i < files.length; i++) {
+          await cache.put('shared-file-' + i, new Response(files[i], { headers: { 'content-type': files[i].type || 'image/png' } }));
+        }
+      } catch (err) {}
+      return Response.redirect('./?shared=1', 303);
+    })());
+    return;
+  }
+  if (e.request.method !== 'GET') return;
+
   e.respondWith(
     fetch(e.request).then(res => {
       const copy = res.clone();

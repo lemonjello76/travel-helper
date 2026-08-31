@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight Plan B — never stand in the rebooking line again</title>
+<meta name="description" content="The in-ear travel copilot that walks you through every airport — and when a connection breaks, puts your rebooking options on screen before the seatbelt sign turns off. $15 per round trip.">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Oswald:wght@500;600;700&family=Fragment+Mono&display=swap">
+<style>
+  /* Single-theme by design: boarding-pass paper, printed like a ticket. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #d9d3c4; color: #16295c; font-family: 'Fragment Mono', Consolas, monospace; line-height: 1.6; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 26px 16px 80px; display: flex; flex-direction: column; gap: 18px; }
+  .ticket { background: #fbf9f2; border-radius: 12px; box-shadow: 0 4px 0 rgba(22,41,92,.15); position: relative; overflow: hidden; }
+  .punched::before, .punched::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #d9d3c4; top: 50%; transform: translateY(-50%); }
+  .punched::before { left: -13px; } .punched::after { right: -13px; }
+  h1, h2, .display { font-family: 'Archivo Black', sans-serif; line-height: 1.15; letter-spacing: .5px; }
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #6a7595; }
+
+  /* HERO */
+  .hero { padding: 34px 28px 24px; }
+  .hero h1 { font-size: clamp(34px, 7vw, 52px); }
+  .hero h1 span { color: #ff4d36; }
+  .hero .sub { margin: 14px 0 4px; font-size: 15.5px; color: #33406e; max-width: 58ch; }
+  .board { background: #111214; border-radius: 10px; padding: 10px; display: flex; gap: 5px; align-items: center; margin: 22px 0 6px; }
+  .tile { flex: none; width: 40px; height: 56px; border-radius: 6px;
+    background: linear-gradient(180deg, #26272b 0 49%, #0c0d0f 49% 51%, #1d1e22 51% 100%);
+    display: grid; place-items: center; font-family: 'Oswald', sans-serif; font-size: 30px; font-weight: 700; color: #f5c518;
+    box-shadow: inset 0 0 0 1px #000; }
+  .tile.sep { width: 18px; color: #7c8089; }
+  .tile.tick { animation: flap 6s infinite; }
+  @keyframes flap { 0%,92% { transform: none; filter: none; } 94% { transform: scaleY(.15); filter: brightness(2.2); } 96%,100% { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  .board .tail { flex: 1; text-align: right; font-family: 'Oswald', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 2px; color: #e8e9ec; padding-right: 8px; }
+  .board .tail em { font-style: normal; color: #f5c518; }
+
+  .cta { display: inline-block; margin-top: 18px; padding: 17px 34px; border-radius: 999px; background: #16a765; color: #fff;
+    font-family: 'Archivo Black', sans-serif; font-size: 17px; letter-spacing: 1.5px; text-decoration: none;
+    animation: glow 1.8s infinite; }
+  @keyframes glow { 0%,100% { box-shadow: 0 0 0 0 rgba(22,167,101,.5); } 50% { box-shadow: 0 0 0 16px rgba(22,167,101,0); } }
+  .cta small { display: block; font-family: 'Fragment Mono', monospace; font-size: 11px; letter-spacing: 1px; margin-top: 3px; }
+
+  /* STORY */
+  .sect { padding: 24px 28px; }
+  .sect h2 { font-size: clamp(21px, 4.5vw, 28px); margin-bottom: 12px; text-wrap: balance; }
+  .sect p { font-size: 14.5px; color: #33406e; margin-bottom: 12px; max-width: 62ch; }
+  .redline { background: #ffe9e5; border-left: 5px solid #ff4d36; padding: 12px 14px; border-radius: 6px; color: #b02a17; font-size: 13.5px; margin: 6px 0 10px; }
+  .dashed { border-top: 2px dashed #c9c2b0; }
+
+  /* FEATURES */
+  .feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; padding: 6px 28px 26px; }
+  .feat { background: #f3efe4; border-radius: 10px; padding: 14px; }
+  .feat b { font-family: 'Oswald', sans-serif; font-size: 15px; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 5px; }
+  .feat span { font-size: 12.5px; color: #4a5578; }
+  .chip { font-family: 'Oswald', sans-serif; font-size: 10.5px; letter-spacing: 2px; padding: 3px 9px; border-radius: 3px; background: #16a765; color: #fff; margin-left: 6px; vertical-align: 2px; }
+  .chip.y { background: #f5c518; color: #211a00; }
+
+  /* PRICE */
+  .price { text-align: center; padding: 30px 28px 34px; }
+  .price .display { font-size: clamp(44px, 10vw, 68px); color: #ff4d36; }
+  .price .per { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #6a7595; }
+  .price p { max-width: 52ch; margin: 12px auto 0; font-size: 14px; color: #33406e; }
+  .code { height: 42px; margin: 22px auto 0; max-width: 420px; border-radius: 3px;
+    background: repeating-linear-gradient(90deg, #16295c 0 2px, transparent 2px 5px, #16295c 5px 9px, transparent 9px 11px, #16295c 11px 12px, transparent 12px 16px); }
+  footer { text-align: center; font-size: 11.5px; color: #6a7595; padding-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="ticket hero">
+    <div class="eyebrow">Flight Plan B · The travel copilot</div>
+    <h1>Never stand in the <span>rebooking line</span> again.</h1>
+    <p class="sub">A voice in your ear walks you through every airport — parking to rental car. And the moment a connection breaks, your options are on screen <b>before the seatbelt sign turns off</b>.</p>
+    <div class="board">
+      <div class="tile tick">4</div><div class="tile">1</div>
+      <div class="tile sep">:</div>
+      <div class="tile tick">2</div><div class="tile">2</div>
+      <div class="tail">TO BOARDING · <em>PLAN B ARMED</em></div>
+    </div>
+    <a class="cta" href="./">OPEN THE APP<small>works on your phone today</small></a>
+  </div>
+
+  <div class="ticket punched sect">
+    <div class="eyebrow">Why this exists</div>
+    <h2>Built by a guy who flies for a living — and got burned twice in one weekend.</h2>
+    <p>Delayed four hours after boarding. Taxied to the runway, taxied back, deplaned. The connection was dead before takeoff — and 140 people stood up to fight for one gate agent.</p>
+    <div class="redline">The traveler who reaches the agent first — with a backup route already in hand — flies home. Everyone else gets a hotel voucher. If they're lucky.</div>
+    <p>Flight Plan B is that first traveler, automated: it knows your seat, your walking pace, your airport's habits, the weather in your exact connection window — and it keeps a ladder of backup options loaded before you ever board.</p>
+  </div>
+
+  <div class="ticket">
+    <div class="sect" style="padding-bottom:8px">
+      <div class="eyebrow">What it does</div>
+      <h2>Your whole trip, in your ear.</h2>
+    </div>
+    <div class="feats">
+      <div class="feat"><b>Plan B screen<span class="chip">CORE</span></b><span>Connection breaks → big verdict, backup ladder, airline rebooking link with your confirmation loaded, call button, X DM, drive option. One screen, zero panic.</span></div>
+      <div class="feat"><b>Voice guidance</b><span>Park here. Check in there. PreCheck's shorter on the left. Gate's a tram ride — board the front car. Spoken as you go, hands stay on your bags.</span></div>
+      <div class="feat"><b>Seat-smart countdown</b><span>Row 25 costs 10 minutes getting off the plane. The connection math knows — before you land.</span></div>
+      <div class="feat"><b>Storm radar for delays<span class="chip y">FREE DATA</span></b><span>Pilot-grade forecasts checked against your exact windows at every airport on the route.</span></div>
+      <div class="feat"><b>Hard deadline guard</b><span>Funeral at 10 AM? Job walk at 8? The app rejects any rebooking that lands late — the airline's algorithm doesn't know what you'll miss. This does.</span></div>
+      <div class="feat"><b>Email → trip in 2 taps</b><span>Share a screenshot of your confirmation. Flights, seats, hotel, rental — the trip builds itself.</span></div>
+      <div class="feat"><b>Airport pro tips</b><span>Which tram car saves 2 minutes. Why coffee in your bag always triggers the recheck lane. Field-tested at 40+ states' worth of airports.</span></div>
+      <div class="feat"><b>Your data stays yours</b><span>No account. No tracking. Everything lives on your phone.</span></div>
+    </div>
+  </div>
+
+  <div class="ticket punched price">
+    <div class="eyebrow">The price of not panicking</div>
+    <div class="display">$15</div>
+    <div class="per">per round trip</div>
+    <p>One missed connection costs a hotel night, a lost day, and hours of stress. Fifteen bucks buys the calm version of that evening. No subscription — pay when you fly.</p>
+    <div class="code"></div>
+  </div>
+
+  <footer>© 2026 Smooth Rock Media LLC · Flight Plan B<br>Currently in field testing — pricing applies at public launch.</footer>
+</div>
+</body>
+</html>

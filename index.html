@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#101418">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.anthropic.com https://api.weather.gov https://firestore.googleapis.com https://firebaseinstallations.googleapis.com; base-uri 'self'; form-action 'self'; object-src 'none'">
 <title>Travel Helper</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -373,6 +374,7 @@ const DWELL_RADIUS_M = 35, LEAVE_RADIUS_M = 80;
 function loadAll() {
   try { trip = JSON.parse(localStorage.getItem('th_trip')); } catch (e) { trip = null; }
   try { const s = JSON.parse(localStorage.getItem('th_state')); if (s) state = s; } catch (e) {}
+  if (state.geo) geoFired = state.geo;
   // AI-built playbooks saved on this phone ride on top of the shipped library
   try { Object.assign(AIRPORTS, JSON.parse(localStorage.getItem('th_custom_airports') || '{}')); } catch (e) {}
 }
@@ -403,7 +405,10 @@ function makeGeneric(code) {
     rideshare: 'Follow the RIDESHARE / App Rides signs from baggage claim — zones move, so the Uber/Lyft app pin is the final word. Order once you\'re AT the zone.'
   };
 }
-function saveState() { localStorage.setItem('th_state', JSON.stringify(state)); }
+function saveState() {
+  state.geo = geoFired; // which geofences already fired rides along — a mid-trip app restart must not re-fire them
+  localStorage.setItem('th_state', JSON.stringify(state));
+}
 
 // =========================================================
 // CLOUD SYNC — same Firebase project as Job Tracker.
@@ -1511,11 +1516,12 @@ function renderTrip() {
   p.lines.filter(Boolean).forEach(l => html += '<p>' + l + '</p>');
   // ONE glowing green button = the next thing to push.
   // If this phase has a primary action (like OPEN WAZE), that glows; otherwise NEXT glows.
-  const hasPrimary = p.actions.some(a => a.primary);
-  if (p.actions.length) {
+  const liveActions = p.actions.filter(a => safeUrl(a.url)); // data-fed URLs must prove they're https
+  const hasPrimary = liveActions.some(a => a.primary);
+  if (liveActions.length) {
     html += '<div class="actions">';
-    p.actions.forEach(a => {
-      html += '<a class="abtn' + (a.primary ? ' primary glow' : '') + '" href="' + a.url + '" target="_blank" rel="noopener">' + a.label + '</a>';
+    liveActions.forEach(a => {
+      html += '<a class="abtn' + (a.primary ? ' primary glow' : '') + '" href="' + safeUrl(a.url) + '" target="_blank" rel="noopener">' + a.label + '</a>';
     });
     html += '</div>';
   }
@@ -1637,7 +1643,9 @@ function calcBags() {
   }
 }
 function hub(ico, label, url, extra) {
-  return '<a class="hubbtn ' + (extra || '') + '" href="' + url + '" target="_blank" rel="noopener">' +
+  const u = safeUrl(url);
+  if (!u) return '';
+  return '<a class="hubbtn ' + (extra || '') + '" href="' + u + '" target="_blank" rel="noopener">' +
     '<span class="ico">' + ico + '</span>' + label + '</a>';
 }
 function regionOf(ap) { return ap.state || ''; }
@@ -1872,7 +1880,12 @@ function val(id) { return document.getElementById(id).value.trim(); }
 // Security chokepoint: nothing that enters the trip file or a playbook may
 // carry HTML. Pasted emails and AI output are untrusted input — a crafted
 // "confirmation" must never become script when we render fields into cards.
-function sanitize(v) { return typeof v === 'string' ? v.replace(/[<>]/g, '') : v; }
+function sanitize(v) { return typeof v === 'string' ? v.replace(/[<>"]/g, '') : v; }
+// URLs rendered into href attributes must be real https links — anything
+// else ("javascript:", quote breakouts, null) renders as no button at all.
+function safeUrl(u) {
+  return (typeof u === 'string' && /^https:\/\//i.test(u.trim())) ? u.trim().replace(/"/g, '%22') : '';
+}
 function sanitizeDeep(o) {
   if (typeof o === 'string') return sanitize(o);
   if (Array.isArray(o)) return o.map(sanitizeDeep);
@@ -2027,7 +2040,7 @@ const EXTRACT_KEYS = `
 
 // Screenshot path — share or pick screenshots of the confirmation email,
 // Claude vision reads them. Same schema, no text selection needed.
-async function aiFillImages(fileList) {
+async function aiFillImages(fileList, fromShare) {
   const status = document.getElementById('aiStatus');
   const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
   const files = [...(fileList || [])].filter(f => f.type.startsWith('image/') || f.type === 'application/pdf').slice(0, 5);
@@ -2058,7 +2071,7 @@ async function aiFillImages(fileList) {
     const data = await res.json();
     let raw = (data.content && data.content[0] && data.content[0].text || '').trim();
     raw = raw.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-    applyExtracted(JSON.parse(raw), status);
+    applyExtracted(JSON.parse(raw), status, fromShare);
   } catch (e) {
     status.textContent = '❌ Couldn\'t read those (' + e.message + '). Try clearer screenshots, one email at a time.';
   }
@@ -2069,7 +2082,7 @@ function extractSchemaPrompt(sourceDesc) {
   return 'Extract travel booking details from ' + sourceDesc + '. Reply with ONLY a JSON object, no other text, using exactly these keys (null for anything not present):' + EXTRACT_KEYS;
 }
 
-async function aiFill() {
+async function aiFill(fromShare) {
   const status = document.getElementById('aiStatus');
   const text = val('f_paste');
   const key = val('f_apikey') || localStorage.getItem('th_apikey') || '';
@@ -2102,7 +2115,7 @@ async function aiFill() {
     const data = await res.json();
     let raw = (data.content && data.content[0] && data.content[0].text || '').trim();
     raw = raw.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-    applyExtracted(JSON.parse(raw), status);
+    applyExtracted(JSON.parse(raw), status, fromShare);
   } catch (e) {
     status.textContent = '❌ Couldn\'t read that one (' + e.message + '). Try pasting just one confirmation at a time.';
   }
@@ -2110,7 +2123,7 @@ async function aiFill() {
 
 // Merge extracted fields into the form. Only fills what it found —
 // never wipes something you already entered.
-function applyExtracted(x, status) {
+function applyExtracted(x, status, fromShare) {
   const filled = [], warns = [];
   const set = (id, v) => { if (v) { document.getElementById(id).value = v; return true; } return false; };
   if (x.from) {
@@ -2157,6 +2170,17 @@ function applyExtracted(x, status) {
   const complete = ['f_from', 'f_to', 'f_airline', 'f_depDateOut', 'f_depTimeOut']
     .every(id => document.getElementById(id).value.trim());
   if (complete) {
+    // Shared-in content arrived via a POST any website could fake — one
+    // confirm tap before it becomes the live trip. In-app picks stay zero-tap.
+    if (fromShare) {
+      const g = id => document.getElementById(id).value.trim();
+      const ok = confirm('Save this shared trip?\n' + g('f_from') + ' → ' + g('f_to') +
+        (g('f_depDateOut') ? '  ·  ' + g('f_depDateOut') : ''));
+      if (!ok) {
+        status.textContent = '✋ Held — the form below is filled, look it over and hit SAVE TRIP yourself.';
+        return;
+      }
+    }
     status.textContent = '✅ ' + filled.join(', ') + '.' +
       (warns.length ? ' ⚠ ' + warns.join('; ') + ' — tap BUILD MISSING PLAYBOOKS below.' : '') +
       ' Trip saved automatically — fix anything here and hit SAVE TRIP again if needed.';
@@ -2209,8 +2233,8 @@ async function handleShared() {
     const text = textR ? await textR.text() : '';
     cache.delete('shared-text'); cache.delete('shared-count');
     showView('setup');
-    if (files.length) aiFillImages(files);
-    else if (text.trim()) { document.getElementById('f_paste').value = text; aiFill(); }
+    if (files.length) aiFillImages(files, true);
+    else if (text.trim()) { document.getElementById('f_paste').value = text; aiFill(true); }
   } catch (e) {}
 }
 </script>

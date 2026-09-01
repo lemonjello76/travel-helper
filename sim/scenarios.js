@@ -2,8 +2,10 @@
 // TRIP SIMULATOR — stress-test harness.
 // Fakes the clock and the GPS, replays real + hypothetical trips
 // through the ACTUAL app logic, and grades every reaction.
-// Run in the browser on the app page:
-//   fetch('sim/scenarios.js').then(r=>r.text()).then(eval); SIM.runAll();
+// Run in the browser on the app page (script tag, NOT eval — the app's
+// Content-Security-Policy blocks eval on purpose):
+//   const s=document.createElement('script'); s.src='sim/scenarios.js';
+//   s.onload=()=>SIM.runAll(); document.head.appendChild(s);
 // ============================================================
 window.SIM = (() => {
   const realNow = Date.now.bind(Date);

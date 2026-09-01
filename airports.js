@@ -241,7 +241,8 @@ window.AIRPORTS = {
 window.TSA_TIPS = [
   "💡 Food ALWAYS risks the bag pull — even factory-sealed. Spices, tea, and coffee pop the X-ray every single time (organic powders read as suspect). If it must fly carry-on, expect the recheck lane.",
   "💡 Empty your pockets into the bag BEFORE the bin line — PreCheck is only fast if you're not fishing for keys at the belt.",
-  "💡 Power banks and e-cigs ride carry-on only — in a checked bag they get your name called over the PA."
+  "💡 Power banks and e-cigs ride carry-on only — in a checked bag they get your name called over the PA.",
+  "💡 Seat power on most planes is still the BIG old USB (USB-A) — carry a USB-A-to-C cable or a $2 adapter, or your phone lands at 12% right when you need it most."
 ];
 
 // ============================================================

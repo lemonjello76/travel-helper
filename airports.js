@@ -7,6 +7,7 @@
 window.AIRPORTS = {
 
   LAS: {
+    rideshare: "Terminal 1 rideshare pickup: from baggage claim take the elevator UP to Level 2, cross the pedestrian bridge into the parking garage - pickup zone is on the right. Terminal 3: valet level of its garage. Order once you are AT the zone, not at the carousel.",
     proTips: ["Board the tram at the FRONT car - first off, about 2 minutes ahead of the crowd at the D gates."],
     risks: ["Summer monsoon afternoons (Jul–Sep) can briefly stop ramp operations.", "A/B/C gates walk easy — D gates need the tram, budget it."],
     code: "LAS",
@@ -49,6 +50,7 @@ window.AIRPORTS = {
   },
 
   TPA: {
+    rideshare: "Rideshare picks up at the arrivals curb outside baggage claim (red or blue side - your app pin picks the door). Short walk, no train needed.",
     proTips: ["Airside shuttle: stand at the doors facing the gate-side escalators - first down to the concourse."],
     risks: ["Summer afternoon thunderstorms (Jun–Sep) cause short ground stops almost daily — morning flights dodge most of it."],
     code: "TPA",
@@ -88,6 +90,7 @@ window.AIRPORTS = {
   },
 
   MCO: {
+    rideshare: "Rideshare pickup is on Level 2 (arrivals) at both A and B sides - check the app pin for which door letter. Big airport: do not order until you are at the curb.",
     proTips: ["People-mover to the airsides: front car, doors open toward the gates - you beat the herd."],
     risks: ["Afternoon storm season (Jun–Sep) = frequent late-day delays.", "Big airport — people-mover rides add real minutes to every gate."],
     code: "MCO",
@@ -133,6 +136,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 for the Dayton trip (connection playbook — Lyle only connects here)
   CLT: {
+    rideshare: "Follow the RIDESHARE / App Rides overhead signs from baggage claim - the zone has moved before, so trust the signs and the app pin over memory.",
     proTips: ["Moving walkways to E: WALK them, do not ride - standing riders lose the minutes the walkway gave them."],
     risks: ["CHRONIC GATE SHORTAGE: landing on time often still means sitting on the tarmac waiting for a gate — never count wheels-down as gate time here.", "American’s connection banks pack the concourses in waves — Concourse E is a long, crowded walk at peak."],
     code: "CLT",
@@ -167,6 +171,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 — destination for the Aug 28-30 trip. Small and easy.
   DAY: {
+    rideshare: "Small airport - rideshare and passenger pickup are right at the curb outside baggage claim. Easiest pickup there is.",
     risks: [],
     code: "DAY",
     name: "Dayton International",
@@ -201,6 +206,7 @@ window.AIRPORTS = {
 
   // Verified 2026-08-26 (connection playbook — Skylink does the work)
   DFW: {
+    rideshare: "Each terminal has its own rideshare zone at the lower/arrivals level - your app pin will name the terminal and door. Wrong terminal? Skylink first, then order.",
     proTips: ["Skylink: board the FRONT car - first off at your terminal, ahead of everyone at the escalator."],
     risks: ["Texas heat storms (May–Sep) regularly ground-stop afternoons and evenings.", "Five terminals — confirm your gate’s terminal before riding Skylink."],
     code: "DFW",

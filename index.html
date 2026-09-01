@@ -287,7 +287,15 @@
     <fieldset>
       <legend>Rental Car</legend>
       <div class="row2">
-        <div><label>Company</label><select id="f_rental"></select></div>
+        <div><label>Ground plan</label><select id="f_ground">
+          <option value="rental">Rental car</option>
+          <option value="rideshare">Rideshare (Uber/Lyft)</option>
+          <option value="pickup">Someone's picking me up</option>
+        </select></div>
+        <div></div>
+      </div>
+      <div class="row2">
+        <div><label>Company (if renting)</label><select id="f_rental"></select></div>
         <div><label>Confirmation #</label><input id="f_rentalConf" placeholder="optional"></div>
       </div>
     </fieldset>
@@ -366,7 +374,8 @@ function makeGeneric(code) {
       baggage: 'Check the monitors for your carousel.',
       toRental: 'Follow the Rental Car signs from baggage claim — could be in-terminal, a shuttle, or a train.',
       toParking: 'Follow the Parking signs back to your garage.'
-    }
+    },
+    rideshare: 'Follow the RIDESHARE / App Rides signs from baggage claim — zones move, so the Uber/Lyft app pin is the final word. Order once you\'re AT the zone.'
   };
 }
 function saveState() { localStorage.setItem('th_state', JSON.stringify(state)); }
@@ -463,7 +472,24 @@ function buildPhases() {
   // Live flight status — FlightAware public page, no key needed (SWA1234 style)
   const fsBtn = (al.icao && flight) ? [{ label: '📡 Flight Status', url: 'https://www.flightaware.com/live/flight/' + al.icao + flight }] : [];
 
-  if (out || !rental) {
+  const ground = groundPlan();
+  if (ground === 'rideshare') {
+    phases.push({
+      id: 'drive', title: 'Ride to ' + dep.code,
+      lines: [depWarn, dep.name + ', ' + dep.city + '.',
+        'Order the ride with cushion — surge and driver ETA eat buffers. Drop-off is the departures curb.'],
+      voice: 'Time to order your ride to ' + dep.name + '. Build in cushion — drop-off at departures.',
+      actions: [{ label: '🚗 UBER to ' + dep.code, url: uberUrl(dep.name + ' airport ' + dep.city), primary: true },
+                { label: 'Lyft', url: lyftUrl() }]
+    });
+  } else if (ground === 'pickup') {
+    phases.push({
+      id: 'drive', title: 'Get Dropped at ' + dep.code,
+      lines: [depWarn, dep.name + ', ' + dep.city + '.', 'Departures curb drop-off — hug fast, the curb cops are ruthless.'],
+      voice: 'Heading to ' + dep.name + '. Departures curb drop-off.',
+      actions: [{ label: 'Waze to ' + dep.code, url: wazeUrl(dep.name + ' ' + dep.city) }]
+    });
+  } else if (out || !rental) {
     phases.push({
       id: 'drive', title: 'Head to ' + dep.code,
       lines: [depWarn, dep.name + ', ' + dep.city + '.', pick(dep.departure.parking, trip.airline)],
@@ -567,7 +593,25 @@ function buildPhases() {
       actions: []
     });
   }
-  if (out) {
+  const rideDest = out ? (trip.hotelAddr || trip.hotelName || arr.city) : (trip.homeAddr || arr.city);
+  const rideZone = arr.rideshare || 'Follow the RIDESHARE signs from baggage claim — the app pin is the final word.';
+  if (ground === 'rideshare') {
+    phases.push({
+      id: 'rental', title: 'Get Your Ride',
+      lines: [rideZone, 'Destination is pre-loaded into Uber. Zones move — when the app pin and my directions disagree, the pin wins.'],
+      voice: rideZone + ' Your destination is loaded into Uber — one tap.',
+      actions: [{ label: '🚗 UBER (destination loaded)', url: uberUrl(rideDest), primary: true },
+                { label: 'Lyft', url: lyftUrl() }]
+    });
+  } else if (ground === 'pickup') {
+    phases.push({
+      id: 'rental', title: 'Meet Your Ride',
+      lines: ['Passenger pickup uses the same curbs as rideshare: ' + rideZone,
+        'Text them your door number from the overhead signs — beats "I\'m by the thing."'],
+      voice: 'Meet your ride. ' + rideZone,
+      actions: []
+    });
+  } else if (out) {
     phases.push({
       id: 'rental', title: 'Rental Car',
       lines: [arr.arrival.toRental,
@@ -585,7 +629,7 @@ function buildPhases() {
   }
   const wazeDest = out ? (trip.hotelAddr || trip.hotelName) : (trip.homeAddr || null);
   const destLabel = out ? (trip.hotelName || trip.hotelAddr) : (trip.homeAddr ? 'home' : null);
-  phases.push({
+  if (ground === 'rental') phases.push({
     id: 'waze', title: 'Hit the Road',
     lines: [destLabel
       ? 'Handing you off to Waze — destination loaded: ' + destLabel + '.'
@@ -606,6 +650,12 @@ function buildPhases() {
 }
 
 function wazeUrl(q) { return 'https://waze.com/ul?q=' + encodeURIComponent(q) + '&navigate=yes'; }
+function uberUrl(dest) {
+  return 'https://m.uber.com/ul/?action=setPickup&pickup=my_location' +
+    (dest ? '&dropoff[formatted_address]=' + encodeURIComponent(dest) : '');
+}
+function lyftUrl() { return 'https://ride.lyft.com/'; }
+function groundPlan() { return (trip && trip.ground) || 'rental'; }
 
 // =========================================================
 // DATE RECONCILE — the trip file's flight dates drive the state.
@@ -1147,7 +1197,7 @@ function buildSchedule() {
   const bag = trip.bags === 'no' ? 0 : (t.bagDrop || 15); // carry-on = no counter stop
   const sec = trip.precheck === 'yes' ? (t.securityPre || 15) : (t.securityStd || 30);
   const walk = Math.round((t.toGate || 20) * paceFactor()); // pace setting pads every walk
-  const rentalDrop = (!out && trip.rental) ? (t.rentalReturn || 20) : 0;
+  const rentalDrop = (!out && trip.rental && groundPlan() === 'rental') ? (t.rentalReturn || 20) : 0;
   const [h, m] = depTime.split(':').map(Number);
   // Anchor to the actual flight DATE (not "today") — otherwise the countdown
   // screams BEHIND the night before and the return leg is wrong all week.
@@ -1459,8 +1509,11 @@ function renderHub() {
   if (mu && trip.flightConf) html += '<a class="hubbtn waze" href="' + mu + '" onclick="copyConf()" target="_blank" rel="noopener"><span class="ico">🎫</span>Manage Trip (' + trip.flightConf + ')</a>';
   if (al && al.appUrl) html += hub('✈️', al.name, al.appUrl);
   if (al && al.icao && hubFlight) html += hub('📡', 'Flight Status', 'https://www.flightaware.com/live/flight/' + al.icao + hubFlight);
-  if (rental) html += hub('🚙', rental.name, rental.url);
-  if (wazeDest) html += hub('🗺️', 'Waze → Hotel', wazeUrl(wazeDest), 'waze');
+  if (groundPlan() === 'rideshare') {
+    html += hub('🚗', 'Uber → ' + (trip.hotelName ? 'Hotel' : 'Ride'), uberUrl(wazeDest || ''), 'waze');
+    html += hub('🅻', 'Lyft', lyftUrl());
+  } else if (rental) html += hub('🚙', rental.name, rental.url);
+  if (wazeDest && groundPlan() === 'rental') html += hub('🗺️', 'Waze → Hotel', wazeUrl(wazeDest), 'waze');
   if (trip.hotelName) html += hub('🏨', trip.hotelName, 'https://www.google.com/maps/search/' + encodeURIComponent(trip.hotelName + ' ' + (trip.hotelAddr || '')));
   if (dep && dep.waitTimesUrl) html += hub('🛂', depCode + ' Waits', dep.waitTimesUrl);
   if (arr && arr.mapUrl) html += hub('🛬', arrCode + ' Map', arr.mapUrl);
@@ -1725,7 +1778,7 @@ function fillForm() {
   document.getElementById('airportList').textContent = Object.keys(AIRPORTS).join(', ');
   document.getElementById('f_apikey').value = localStorage.getItem('th_apikey') || '';
   if (trip) {
-    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','seatOut','seatOut2','seatRet','seatRet2','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','deadline','deadlineLabel','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
+    ['from','to','airline','flightOut','flightRet','precheck','flightConf','firstName','lastName','depDateOut','depTimeOut','depDateRet','depTimeRet','bags','heavyBag','pace','seatOut','seatOut2','seatRet','seatRet2','connOut','flightOut2','depTimeOut2','connRet','flightRet2','depTimeRet2','planBOut','planBRet','deadline','deadlineLabel','ground','rental','rentalConf','hotelName','hotelAddr','hotelConf','homeAddr']
       .forEach(k => { const el = document.getElementById('f_' + k); if (el && trip[k] != null) el.value = trip[k]; });
   } else {
     document.getElementById('f_from').value = 'LAS';
@@ -1745,7 +1798,7 @@ function saveTrip() {
     connRet: val('f_connRet').toUpperCase(), flightRet2: val('f_flightRet2'), depTimeRet2: val('f_depTimeRet2'),
     planBOut: document.getElementById('f_planBOut').value.trim(), planBRet: document.getElementById('f_planBRet').value.trim(),
     deadline: val('f_deadline'), deadlineLabel: val('f_deadlineLabel'),
-    rental: val('f_rental'), rentalConf: val('f_rentalConf'),
+    ground: val('f_ground'), rental: val('f_rental'), rentalConf: val('f_rentalConf'),
     hotelName: val('f_hotelName'), hotelAddr: val('f_hotelAddr'), hotelConf: val('f_hotelConf'),
     homeAddr: val('f_homeAddr')
   };
@@ -1847,6 +1900,7 @@ async function genAirport(code, key) {
  "times":{"bagDrop":15,"securityPre":15,"securityStd":35,"toGate":20,"rentalReturn":20},
  "risks":["1-2 short lines on this airport's CHRONIC issues a connecting traveler should know: gate shortages / tarmac waits, seasonal storm patterns, long walks or trains, notorious checkpoints — only real, well-known patterns, else empty array"],
  "proTips":["0-2 insider movement hacks for this airport: which tram car to board, shortcut corridors, which checkpoint locals use — only real known tricks, else empty array"],
+ "rideshare":"where the Uber/Lyft pickup zone is at this airport (level, side, landmark) — end with a reminder that the app pin is the final word",
  "arrival":{
   "toBaggage":"gate to baggage claim (trains/shuttles/levels)",
   "baggage":"baggage claim specifics",
@@ -2035,7 +2089,7 @@ function applyExtracted(x, status) {
     filled.push('connection back via ' + x.connRet);
     if (!AIRPORTS[x.connRet]) warns.push('no playbook for ' + x.connRet + ' yet');
   }
-  if (x.rental && RENTALS[x.rental]) { set('f_rental', x.rental); filled.push(RENTALS[x.rental].name); }
+  if (x.rental && RENTALS[x.rental]) { set('f_rental', x.rental); set('f_ground', 'rental'); filled.push(RENTALS[x.rental].name); }
   if (set('f_rentalConf', x.rentalConf)) filled.push('rental conf');
   if (set('f_hotelName', x.hotelName)) filled.push('hotel');
   if (set('f_hotelAddr', x.hotelAddr)) filled.push('hotel address');

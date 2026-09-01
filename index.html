@@ -113,6 +113,25 @@
   .bm-verdict.win { color: var(--ok); }
   .bm-verdict.lose { color: var(--warn); }
 
+  /* BEACON — the whole screen becomes a flashing pickup light.
+     Slow 1.2s pulse: far-visible, safely below photosensitive strobe rates. */
+  #beacon {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: var(--beacon-color, #22ff55);
+    animation: beaconPulse 1.2s infinite;
+    flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    cursor: pointer; text-align: center;
+  }
+  #beacon.on { display: flex; }
+  @keyframes beaconPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(0.15); } }
+  @media (prefers-reduced-motion: reduce) { #beacon { animation: none; } }
+  #beacon .bname { font-size: 13vw; font-weight: 900; color: rgba(0,0,0,.75); letter-spacing: 2px; }
+  #beacon .bbtn {
+    background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 999px;
+    padding: 14px 26px; font-size: 16px; font-weight: 800; cursor: pointer;
+  }
+  #beacon .bhint { position: absolute; bottom: 26px; font-size: 13px; color: rgba(0,0,0,.65); font-weight: 700; }
+
   /* ---- HUB VIEW ---- */
   .hubgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
   .hubbtn {
@@ -176,6 +195,12 @@
 </header>
 
 <div id="boardBar"></div>
+
+<div id="beacon" onclick="stopBeacon(event)">
+  <div class="bname" id="beaconName"></div>
+  <button class="bbtn" onclick="cycleBeaconColor(event)">🎨 CHANGE COLOR</button>
+  <div class="bhint">tap anywhere to turn off</div>
+</div>
 
 <main>
   <!-- TRIP -->
@@ -607,7 +632,8 @@ function buildPhases() {
     phases.push({
       id: 'rental', title: 'Meet Your Ride',
       lines: ['Passenger pickup uses the same curbs as rideshare: ' + rideZone,
-        'Text them your door number from the overhead signs — beats "I\'m by the thing."'],
+        'Text them your door number from the overhead signs — beats "I\'m by the thing."',
+        '🔦 Dark out or crowded curb? Hit BEACON below — your phone becomes a flashing light they\'ll spot from way down the lane.'],
       voice: 'Meet your ride. ' + rideZone,
       actions: []
     });
@@ -855,6 +881,31 @@ function renderPlanB() {
     '</div></div>';
 
   el.innerHTML = html;
+}
+
+// =========================================================
+// BEACON — hold your phone up, be the flashing light the
+// driver spots from way down the curb.
+// =========================================================
+const BEACON_COLORS = ['#22ff55', '#ff9500', '#2f8bff', '#ff2fd6', '#ffee00'];
+let beaconIdx = 0, beaconLock = null;
+async function startBeacon() {
+  const b = document.getElementById('beacon');
+  document.getElementById('beaconName').textContent = (trip && trip.firstName) ? trip.firstName.toUpperCase() : '👋';
+  b.style.setProperty('--beacon-color', BEACON_COLORS[beaconIdx]);
+  b.classList.add('on');
+  try { beaconLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  try { await document.documentElement.requestFullscreen(); } catch (e) {}
+}
+function cycleBeaconColor(ev) {
+  if (ev) ev.stopPropagation();
+  beaconIdx = (beaconIdx + 1) % BEACON_COLORS.length;
+  document.getElementById('beacon').style.setProperty('--beacon-color', BEACON_COLORS[beaconIdx]);
+}
+function stopBeacon(ev) {
+  document.getElementById('beacon').classList.remove('on');
+  try { if (beaconLock) { beaconLock.release(); beaconLock = null; } } catch (e) {}
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
 }
 
 function copyConf() {
@@ -1470,6 +1521,9 @@ function renderTrip() {
   }
   if (p.id === 'done') {
     html += '<div class="actions"><button class="abtn" onclick="clearTrip()">🧹 CLEAR TRIP</button></div>';
+  }
+  if (p.id === 'rental' && groundPlan() !== 'rental') {
+    html += '<div class="actions"><button class="abtn primary" onclick="startBeacon()">🔦 BEACON — be easy to spot</button></div>';
   }
   html += '</div>';
   if (['gate', 'board', 'flight', 'conn', 'board2'].includes(p.id)) html += planBHtml();

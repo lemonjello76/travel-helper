@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /travel-helper/sim/
+Sitemap: https://lemonjello76.github.io/travel-helper/sitemap.xml
